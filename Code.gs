@@ -2168,3 +2168,94 @@ function syncPrimaryServiceLineFromDriveFolders() {
     ', Needs Review: ' + counts['Needs Review']
   );
 }
+function clearPrimaryServiceLineFromSubtasks() {
+  const DRY_RUN = true;
+
+  const CLICKUP_LIST_ID = '901711419133';
+  const PRIMARY_SERVICE_LINE_FIELD_ID = 'c7918543-bdfd-4d16-8e6c-6c587b498bc0';
+
+  const token = PropertiesService.getScriptProperties().getProperty('CLICKUP_API_TOKEN');
+
+  if (!token) {
+    Logger.log('ERROR: No ClickUp API token found. Set CLICKUP_API_TOKEN in Script Properties.');
+    return;
+  }
+
+  // Fetch every task from the list, paging until a page returns no tasks
+  const allTasks = [];
+  let page = 0;
+
+  while (true) {
+    const listUrl =
+      'https://api.clickup.com/api/v2/list/' + CLICKUP_LIST_ID +
+      '/task?include_closed=true&subtasks=true&page=' + page;
+
+    const response = UrlFetchApp.fetch(listUrl, {
+      method: 'get',
+      headers: { Authorization: token },
+      muteHttpExceptions: true
+    });
+
+    const statusCode = response.getResponseCode();
+    const body = response.getContentText();
+
+    if (statusCode !== 200) {
+      Logger.log('ERROR: Failed to fetch tasks (page ' + page + '), status ' + statusCode + ': ' + body);
+      return;
+    }
+
+    const tasks = JSON.parse(body).tasks || [];
+
+    if (tasks.length === 0) break;
+
+    tasks.forEach(function(task) {
+      allTasks.push(task);
+    });
+
+    page++;
+  }
+
+  Logger.log('Fetched ' + allTasks.length + ' tasks from ClickUp.');
+
+  let clearedCount = 0;
+
+  allTasks.forEach(function(task) {
+    if (!task.parent) return;
+
+    const taskName = task.name;
+
+    try {
+      if (DRY_RUN) {
+        Logger.log('DRY RUN - would clear Primary Service Line on subtask "' + taskName + '" (' + task.id + ')');
+        clearedCount++;
+        return;
+      }
+
+      const clearUrl =
+        'https://api.clickup.com/api/v2/task/' + task.id +
+        '/field/' + PRIMARY_SERVICE_LINE_FIELD_ID;
+
+      const clearResponse = UrlFetchApp.fetch(clearUrl, {
+        method: 'delete',
+        headers: { Authorization: token },
+        muteHttpExceptions: true
+      });
+
+      const code = clearResponse.getResponseCode();
+
+      if (code === 200) {
+        clearedCount++;
+        Logger.log('Cleared Primary Service Line on subtask "' + taskName + '"');
+      } else {
+        Logger.log('ERROR clearing "' + taskName + '" (status ' + code + '): ' + clearResponse.getContentText());
+      }
+    } catch (err) {
+      Logger.log('ERROR clearing "' + taskName + '": ' + err);
+    }
+  });
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. Would clear ' : 'Done. Cleared ') +
+    clearedCount + ' subtasks.'
+  );
+}
