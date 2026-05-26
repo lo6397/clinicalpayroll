@@ -2062,14 +2062,23 @@ function syncPrimaryServiceLineFromDriveFolders() {
 
   function normalizeName(name) {
     let n = String(name).toLowerCase();
-    n = n.replace(/,/g, ' ');
+
+    // Remove any text inside parentheses, then stray punctuation
+    n = n.replace(/\([^)]*\)/g, ' ');
+    n = n.replace(/[,.()]/g, ' ');
+
+    // Collapse whitespace and trim
     n = n.replace(/\s+/g, ' ').trim();
 
+    // Strip trailing FT/PRN/PT/1099 whole-word suffixes
     let prev;
     do {
       prev = n;
-      n = n.replace(/\s+(ft|prn|pt|1099)$/, '').trim();
+      n = n.replace(/\s+(ft|prn|pt|1099)$/i, '').trim();
     } while (n !== prev);
+
+    // Sort words alphabetically so word order doesn't matter
+    n = n.split(/\s+/).sort().join(' ');
 
     return n;
   }
@@ -2132,6 +2141,11 @@ function syncPrimaryServiceLineFromDriveFolders() {
   const counts = { Infusion: 0, Vascular: 0, Corporate: 0, 'Needs Review': 0 };
 
   allTasks.forEach(function(task) {
+    if (task.parent) {
+      Logger.log('SKIP subtask: ' + task.name);
+      return;
+    }
+
     const taskName = task.name;
     const key = normalizeName(taskName);
     const serviceLine = nameToServiceLine[key] || 'Needs Review';
