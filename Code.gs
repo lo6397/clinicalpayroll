@@ -2029,3 +2029,142 @@ function testClickUpConnection() {
     Logger.log('ERROR: Failed to connect to ClickUp: ' + err);
   }
 }
+function syncPrimaryServiceLineFromDriveFolders() {
+  const CLICKUP_LIST_ID = '901711419133';
+  const PRIMARY_SERVICE_LINE_FIELD_ID = 'c7918543-bdfd-4d16-8e6c-6c587b498bc0';
+
+  const OPTION_IDS = {
+    Infusion: 'fed98116-a3ca-44e0-870d-f53fdedbb98f',
+    Vascular: '2eb1aecd-0cbf-4db6-9321-45823b151146',
+    Corporate: '25298b53-d4ad-4d0c-afa4-616a63a1a9fa',
+    'Needs Review': '4f8d8401-2a92-49bc-954e-a0432aeba457'
+  };
+
+  const FOLDER_GROUPS = {
+    Infusion: [
+      '1abALtYC_Bcdnl-J06wtOxyJQI6XFdpQs',
+      '1qF4Nv_MLLOEbd4i8nb6PF_2TsnryH0o2',
+      '1B4ZbEOPkQ8GW-RETHpWLcQDob137SRhG',
+      '1Y3kbrNn_v2E8oyJQYCiH0Swj8m2bmwna'
+    ],
+    Vascular: ['185swROseZQ4U1nRhHtD-pFNIRx0DIz19'],
+    Corporate: ['1UfIBI1wHcMbV_cz9KZSVfI8ud933gOBO']
+  };
+
+  const token = PropertiesService.getScriptProperties().getProperty('CLICKUP_API_TOKEN');
+
+  if (!token) {
+    Logger.log('ERROR: No ClickUp API token found. Set CLICKUP_API_TOKEN in Script Properties.');
+    return;
+  }
+
+  function normalizeName(name) {
+    let n = String(name).toLowerCase();
+    n = n.replace(/,/g, ' ');
+    n = n.replace(/\s+/g, ' ').trim();
+
+    let prev;
+    do {
+      prev = n;
+      n = n.replace(/\s+(ft|prn|pt|1099)$/, '').trim();
+    } while (n !== prev);
+
+    return n;
+  }
+
+  // Build lookup of normalized employee folder name -> service line
+  const nameToServiceLine = {};
+
+  Object.keys(FOLDER_GROUPS).forEach(function(serviceLine) {
+    FOLDER_GROUPS[serviceLine].forEach(function(folderId) {
+      const parentFolder = DriveApp.getFolderById(folderId);
+      const employeeFolders = parentFolder.getFolders();
+
+      while (employeeFolders.hasNext()) {
+        const employeeFolder = employeeFolders.next();
+        const key = normalizeName(employeeFolder.getName());
+
+        if (key) {
+          nameToServiceLine[key] = serviceLine;
+        }
+      }
+    });
+  });
+
+  // Fetch every task from the list, paging until a page returns no tasks
+  const allTasks = [];
+  let page = 0;
+
+  while (true) {
+    const listUrl =
+      'https://api.clickup.com/api/v2/list/' + CLICKUP_LIST_ID +
+      '/task?include_closed=true&subtasks=true&page=' + page;
+
+    const response = UrlFetchApp.fetch(listUrl, {
+      method: 'get',
+      headers: { Authorization: token },
+      muteHttpExceptions: true
+    });
+
+    const statusCode = response.getResponseCode();
+    const body = response.getContentText();
+
+    if (statusCode !== 200) {
+      Logger.log('ERROR: Failed to fetch tasks (page ' + page + '), status ' + statusCode + ': ' + body);
+      return;
+    }
+
+    const tasks = JSON.parse(body).tasks || [];
+
+    if (tasks.length === 0) break;
+
+    tasks.forEach(function(task) {
+      allTasks.push(task);
+    });
+
+    page++;
+  }
+
+  Logger.log('Fetched ' + allTasks.length + ' tasks from ClickUp.');
+
+  const counts = { Infusion: 0, Vascular: 0, Corporate: 0, 'Needs Review': 0 };
+
+  allTasks.forEach(function(task) {
+    const taskName = task.name;
+    const key = normalizeName(taskName);
+    const serviceLine = nameToServiceLine[key] || 'Needs Review';
+    const optionId = OPTION_IDS[serviceLine];
+
+    try {
+      const updateUrl =
+        'https://api.clickup.com/api/v2/task/' + task.id +
+        '/field/' + PRIMARY_SERVICE_LINE_FIELD_ID;
+
+      const updateResponse = UrlFetchApp.fetch(updateUrl, {
+        method: 'post',
+        contentType: 'application/json',
+        headers: { Authorization: token },
+        payload: JSON.stringify({ value: optionId }),
+        muteHttpExceptions: true
+      });
+
+      const code = updateResponse.getResponseCode();
+
+      if (code === 200) {
+        counts[serviceLine]++;
+        Logger.log('Updated "' + taskName + '" -> ' + serviceLine);
+      } else {
+        Logger.log('ERROR updating "' + taskName + '" (status ' + code + '): ' + updateResponse.getContentText());
+      }
+    } catch (err) {
+      Logger.log('ERROR updating "' + taskName + '": ' + err);
+    }
+  });
+
+  Logger.log(
+    'Done. Infusion: ' + counts.Infusion +
+    ', Vascular: ' + counts.Vascular +
+    ', Corporate: ' + counts.Corporate +
+    ', Needs Review: ' + counts['Needs Review']
+  );
+}
