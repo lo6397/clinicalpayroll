@@ -1989,3 +1989,43 @@ function archiveProcessedInFolders_(parentFolderIds, archiveFolder) {
     }
   });
 }
+function testClickUpConnection() {
+  const token = PropertiesService.getScriptProperties().getProperty('CLICKUP_API_TOKEN');
+
+  if (!token) {
+    Logger.log('ERROR: No ClickUp API token found. Set CLICKUP_API_TOKEN in Script Properties.');
+    return;
+  }
+
+  const url = 'https://api.clickup.com/api/v2/user';
+
+  const options = {
+    method: 'get',
+    headers: {
+      Authorization: token
+    },
+    muteHttpExceptions: true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(url, options);
+    const statusCode = response.getResponseCode();
+    const body = response.getContentText();
+
+    if (statusCode !== 200) {
+      Logger.log('ERROR: ClickUp API returned status ' + statusCode + ': ' + body);
+      return;
+    }
+
+    const user = JSON.parse(body).user;
+
+    if (!user) {
+      Logger.log('ERROR: Unexpected response from ClickUp: ' + body);
+      return;
+    }
+
+    Logger.log('ClickUp connection successful. Username: ' + user.username + ', Email: ' + user.email);
+  } catch (err) {
+    Logger.log('ERROR: Failed to connect to ClickUp: ' + err);
+  }
+}
