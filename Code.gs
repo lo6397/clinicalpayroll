@@ -2030,6 +2030,8 @@ function testClickUpConnection() {
   }
 }
 function syncPrimaryServiceLineFromDriveFolders() {
+  const DRY_RUN = true;
+
   const CLICKUP_LIST_ID = '901711419133';
   const PRIMARY_SERVICE_LINE_FIELD_ID = 'c7918543-bdfd-4d16-8e6c-6c587b498bc0';
 
@@ -2136,6 +2138,12 @@ function syncPrimaryServiceLineFromDriveFolders() {
     const optionId = OPTION_IDS[serviceLine];
 
     try {
+      if (DRY_RUN) {
+        counts[serviceLine]++;
+        Logger.log('DRY RUN: would update "' + taskName + '" -> ' + serviceLine);
+        return;
+      }
+
       const updateUrl =
         'https://api.clickup.com/api/v2/task/' + task.id +
         '/field/' + PRIMARY_SERVICE_LINE_FIELD_ID;
