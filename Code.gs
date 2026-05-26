@@ -2281,3 +2281,43 @@ function clearPrimaryServiceLineFromSubtasks() {
     clearedCount + ' subtasks.'
   );
 }
+function debugListAllEmployeeFolders() {
+  const FOLDER_GROUPS = {
+    Infusion: [
+      '1abALtYC_Bcdnl-J06wtOxyJQI6XFdpQs',
+      '1qF4Nv_MLLOEbd4i8nb6PF_2TsnryH0o2',
+      '1B4ZbEOPkQ8GW-RETHpWLcQDob137SRhG',
+      '1Y3kbrNn_v2E8oyJQYCiH0Swj8m2bmwna'
+    ],
+    Vascular: ['185swROseZQ4U1nRhHtD-pFNIRx0DIz19'],
+    Corporate: ['1UfIBI1wHcMbV_cz9KZSVfI8ud933gOBO']
+  };
+
+  const counts = { Infusion: 0, Vascular: 0, Corporate: 0 };
+
+  Object.keys(FOLDER_GROUPS).forEach(function(serviceLine) {
+    FOLDER_GROUPS[serviceLine].forEach(function(folderId) {
+      try {
+        const parentFolder = DriveApp.getFolderById(folderId);
+
+        Logger.log('=== PARENT [' + serviceLine + ']: ' + parentFolder.getName() + ' (' + folderId + ') ===');
+
+        const employeeFolders = parentFolder.getFolders();
+
+        while (employeeFolders.hasNext()) {
+          const employeeFolder = employeeFolders.next();
+          Logger.log('  [' + serviceLine + '] ' + employeeFolder.getName());
+          counts[serviceLine]++;
+        }
+      } catch (err) {
+        Logger.log('ERROR opening folder ' + folderId + ' [' + serviceLine + ']: ' + err);
+      }
+    });
+  });
+
+  Logger.log(
+    'TOTALS — Infusion: ' + counts.Infusion +
+    ', Vascular: ' + counts.Vascular +
+    ', Corporate: ' + counts.Corporate
+  );
+}
