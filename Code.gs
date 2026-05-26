@@ -2063,9 +2063,17 @@ function syncPrimaryServiceLineFromDriveFolders() {
   function normalizeName(name) {
     let n = String(name).toLowerCase();
 
-    // Remove any text inside parentheses, then stray punctuation
+    // Strip a trailing employment-status suffix first (underscore- or space-separated)
+    n = n.replace(/[_ ](ft|prn|pt|1099)$/i, '');
+
+    // Strip a leading numeric prefix like "1. ", "2. ", "3. "
+    n = n.replace(/^\d+\.\s*/, '');
+
+    // Remove any text inside parentheses
     n = n.replace(/\([^)]*\)/g, ' ');
-    n = n.replace(/[,.()]/g, ' ');
+
+    // Treat commas, underscores, periods, and stray parentheses as whitespace
+    n = n.replace(/[,._()]/g, ' ');
 
     // Collapse whitespace and trim
     n = n.replace(/\s+/g, ' ').trim();
@@ -2095,9 +2103,11 @@ function syncPrimaryServiceLineFromDriveFolders() {
         const employeeFolder = employeeFolders.next();
         const key = normalizeName(employeeFolder.getName());
 
-        if (key) {
-          nameToServiceLine[key] = serviceLine;
+        if (!key || key.includes('archive')) {
+          continue;
         }
+
+        nameToServiceLine[key] = serviceLine;
       }
     });
   });
