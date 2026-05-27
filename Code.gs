@@ -236,6 +236,11 @@ function copyPreviousInventoryCounts(priorFile, newSpreadsheet, inventorySheetNa
     .setValues(oldEndingCounts);
 
   newInventory
+    .getRange(config.firstItemRow, config.beginningColumn, actualItemCount, 1)
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle');
+
+  newInventory
     .getRange(config.firstItemRow, config.endingColumn, actualItemCount, 1)
     .clearContent();
 }
@@ -2610,13 +2615,21 @@ function copyPriorEndingToCurrentBeginning() {
           const isBlank = (currentValue === '' || currentValue === null);
 
           if (!isBlank) {
+            if (!DRY_RUN) {
+              currentInventory.getRange(match.row, cfg.beginningColumn)
+                .setHorizontalAlignment('center')
+                .setVerticalAlignment('middle');
+            }
             Logger.log((DRY_RUN ? 'DRY RUN - ' : '') + 'PRESERVED: ' + employeeName + ' - ' + ai.name + ' - existing value ' + currentValue + ', would have written ' + ai.trueValue + ' (source: ' + ai.source + ')');
             itemsPreserved++;
             return;
           }
 
           if (!DRY_RUN) {
-            currentInventory.getRange(match.row, cfg.beginningColumn).setValue(ai.trueValue);
+            currentInventory.getRange(match.row, cfg.beginningColumn)
+              .setValue(ai.trueValue)
+              .setHorizontalAlignment('center')
+              .setVerticalAlignment('middle');
           }
 
           if (ai.source === 'Ending') {
