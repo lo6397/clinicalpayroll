@@ -2853,3 +2853,240 @@ function debugArchiveCurrentFolderMatches() {
     Logger.log('TOTALS [' + sl.name + '] — matches: ' + matches + ', non-matches: ' + nonMatches);
   });
 }
+
+function buildMasterInventorySummary() {
+  const MASTER_SPREADSHEET_ID = '1QQlpd-gwe07yWOTGpmixzv9ndtvkQFC2alPzyi5jvq4';
+  const INFUSION_TAB_NAME = 'Infusion';
+  const VASCULAR_TAB_NAME = 'Vascular';
+  const INFUSION_ARCHIVE_PERIOD_FOLDER_ID = '1xhwiI-IpEA2POzXftHN2NkGZrLDI2fxE';
+  const VASCULAR_ARCHIVE_PERIOD_FOLDER_ID = '1c37xYxv9oozS4lGHB7PzEiVCf0bcdtrT';
+
+  const INVENTORY_SHEET_NAME = 'Inventory';
+  const DRY_RUN = true;
+
+  const HEADER = [
+    'Employee', 'Item', 'Beginning Count', 'Ending Count',
+    'Used During Period', 'Total Value', 'Status', 'Corrections / Notes'
+  ];
+
+  const SERVICE_LINES = [
+    {
+      name: 'Infusion',
+      tabName: INFUSION_TAB_NAME,
+      archivePeriodFolderId: INFUSION_ARCHIVE_PERIOD_FOLDER_ID,
+      currentParentIds: [
+        '1abALtYC_Bcdnl-J06wtOxyJQI6XFdpQs',
+        '1qF4Nv_MLLOEbd4i8nb6PF_2TsnryH0o2',
+        '1B4ZbEOPkQ8GW-RETHpWLcQDob137SRhG',
+        '1Y3kbrNn_v2E8oyJQYCiH0Swj8m2bmwna'
+      ],
+      config: { itemColumn: 2, beginningColumn: 3, endingColumn: 5, usedColumn: 6, totalValueColumn: 9, firstItemRow: 3 }
+    },
+    {
+      name: 'Vascular',
+      tabName: VASCULAR_TAB_NAME,
+      archivePeriodFolderId: VASCULAR_ARCHIVE_PERIOD_FOLDER_ID,
+      currentParentIds: ['185swROseZQ4U1nRhHtD-pFNIRx0DIz19'],
+      config: { itemColumn: 1, beginningColumn: 2, endingColumn: 4, usedColumn: 5, totalValueColumn: 8, firstItemRow: 3 }
+    }
+  ];
+
+  function normalizeName(name) {
+    let n = String(name).toLowerCase();
+    n = n.replace(/[_ ](ft|prn|pt|1099)$/i, '');
+    n = n.replace(/^\d+\.\s*/, '');
+    n = n.replace(/\([^)]*\)/g, ' ');
+    n = n.replace(/[,._()]/g, ' ');
+    n = n.replace(/\s+/g, ' ').trim();
+
+    let prev;
+    do {
+      prev = n;
+      n = n.replace(/\s+(ft|prn|pt|1099)$/i, '').trim();
+    } while (n !== prev);
+
+    n = n.split(/\s+/).sort().join(' ');
+    return n;
+  }
+
+  function isBlankValue(v) {
+    return v === '' || v === null;
+  }
+
+  let master = null;
+  if (!DRY_RUN) {
+    master = SpreadsheetApp.openById(MASTER_SPREADSHEET_ID);
+  }
+
+  SERVICE_LINES.forEach(function(sl) {
+    const cfg = sl.config;
+
+    // Build current employee folder lookup (normalized name -> display name)
+    const currentLookup = {};
+    sl.currentParentIds.forEach(function(parentId) {
+      try {
+        const parentFolder = DriveApp.getFolderById(parentId);
+        const subfolders = parentFolder.getFolders();
+        while (subfolders.hasNext()) {
+          const sf = subfolders.next();
+          const norm = normalizeName(sf.getName());
+          if (!norm || norm.includes('archive')) continue;
+          currentLookup[norm] = { name: sf.getName() };
+        }
+      } catch (err) {
+        Logger.log('ERROR opening current parent ' + parentId + ' [' + sl.name + ']: ' + err);
+      }
+    });
+
+    const rows = [];
+    const archiveNormsSeen = {};
+
+    // Iterate archive timecard files
+    let archivePeriodFolder;
+    try {
+      archivePeriodFolder = DriveApp.getFolderById(sl.archivePeriodFolderId);
+    } catch (err) {
+      Logger.log('ERROR opening ' + sl.name + ' archive period folder ' + sl.archivePeriodFolderId + ': ' + err);
+      return;
+    }
+
+    const archiveFiles = archivePeriodFolder.getFiles();
+
+    while (archiveFiles.hasNext()) {
+      const archiveFile = archiveFiles.next();
+      const archiveFileName = archiveFile.getName();
+
+      if (!archiveFileName.includes('Timecard')) continue;
+      if (archiveFileName.includes('Processed')) continue;
+      if (archiveFileName.includes('Summary')) continue;
+      if (archiveFileName.includes('ZZ_ARCHIVE_PAYROLL')) continue;
+
+      try {
+        const employeeName = archiveFileName.split(' - Timecard')[0].trim();
+        const archiveNorm = normalizeName(employeeName);
+        archiveNormsSeen[archiveNorm] = true;
+
+        const archiveSs = SpreadsheetApp.openById(archiveFile.getId());
+        const inv = archiveSs.getSheetByName(INVENTORY_SHEET_NAME);
+
+        if (!inv) {
+          Logger.log('SKIP: no Inventory tab in archived timecard for ' + employeeName);
+          continue;
+        }
+
+        const numRows = inv.getMaxRows() - cfg.firstItemRow + 1;
+        const itemVals = inv.getRange(cfg.firstItemRow, cfg.itemColumn, numRows, 1).getValues();
+        const beginVals = inv.getRange(cfg.firstItemRow, cfg.beginningColumn, numRows, 1).getValues();
+        const endVals = inv.getRange(cfg.firstItemRow, cfg.endingColumn, numRows, 1).getValues();
+        const usedVals = inv.getRange(cfg.firstItemRow, cfg.usedColumn, numRows, 1).getValues();
+        const totalVals = inv.getRange(cfg.firstItemRow, cfg.totalValueColumn, numRows, 1).getValues();
+
+        const employeeRows = [];
+
+        for (let i = 0; i < numRows; i++) {
+          const itemName = itemVals[i][0];
+          if (isBlankValue(itemName)) break;
+
+          const beginning = beginVals[i][0];
+          const ending = endVals[i][0];
+          const used = usedVals[i][0];
+          const totalValue = totalVals[i][0];
+
+          let status;
+          let note;
+
+          if (!isBlankValue(ending)) {
+            status = 'Entered correctly';
+            note = '';
+          } else if (!isBlankValue(beginning)) {
+            status = 'Wrong column — entered in Beginning';
+            note = 'Please review — entered in Beginning column instead of Ending';
+          } else {
+            status = 'Missing';
+            note = 'Please review — no count entered';
+          }
+
+          employeeRows.push([
+            employeeName, String(itemName), beginning, ending, used, totalValue, status, note
+          ]);
+        }
+
+        // Override status if this archived employee has no current folder
+        if (!currentLookup[archiveNorm]) {
+          employeeRows.forEach(function(r) {
+            r[6] = 'Termed/not found in current';
+            r[7] = 'Verify employment status';
+          });
+        }
+
+        employeeRows.forEach(function(r) {
+          rows.push(r);
+        });
+      } catch (err) {
+        Logger.log('ERROR processing archive file "' + archiveFileName + '" [' + sl.name + ']: ' + err);
+      }
+    }
+
+    // Current employees with no archive data
+    Object.keys(currentLookup).forEach(function(norm) {
+      if (!archiveNormsSeen[norm]) {
+        rows.push([
+          currentLookup[norm].name, '(no items found)', '', '', '', '',
+          'No archive data — manual entry needed', 'Verify whether nurse had prior period activity.'
+        ]);
+      }
+    });
+
+    // Sort by Employee (A) then Item (B)
+    rows.sort(function(a, b) {
+      const ea = String(a[0]).toLowerCase();
+      const eb = String(b[0]).toLowerCase();
+      if (ea < eb) return -1;
+      if (ea > eb) return 1;
+
+      const ia = String(a[1]).toLowerCase();
+      const ib = String(b[1]).toLowerCase();
+      if (ia < ib) return -1;
+      if (ia > ib) return 1;
+      return 0;
+    });
+
+    // Status counts
+    const statusCounts = {};
+    rows.forEach(function(r) {
+      const s = r[6];
+      statusCounts[s] = (statusCounts[s] || 0) + 1;
+    });
+
+    Logger.log('=== ' + sl.name + ' tab — ' + rows.length + ' data rows ===');
+
+    if (DRY_RUN) {
+      Logger.log('DRY RUN - would write ' + rows.length + ' rows to ' + sl.tabName);
+      rows.slice(0, 5).forEach(function(r) {
+        Logger.log('  SAMPLE: ' + r.join(' | '));
+      });
+    } else {
+      let tab = master.getSheetByName(sl.tabName);
+      if (!tab) {
+        tab = master.insertSheet(sl.tabName);
+      }
+
+      tab.clear();
+      tab.getRange(1, 1, 1, HEADER.length).setValues([HEADER]).setFontWeight('bold');
+      tab.setFrozenRows(1);
+
+      if (rows.length > 0) {
+        tab.getRange(2, 1, rows.length, HEADER.length).setValues(rows);
+      }
+
+      tab.autoResizeColumn(1);
+      tab.autoResizeColumn(2);
+    }
+
+    Object.keys(statusCounts).forEach(function(s) {
+      Logger.log('  STATUS [' + sl.name + '] ' + s + ': ' + statusCounts[s]);
+    });
+  });
+
+  Logger.log(DRY_RUN ? 'DRY RUN complete. No changes written to master sheet.' : 'Done. Master inventory summary rebuilt.');
+}
