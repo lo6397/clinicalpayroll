@@ -232,9 +232,31 @@ function copyPreviousInventoryCounts(priorFile, newSpreadsheet, inventorySheetNa
     .getRange(config.firstItemRow, config.endingColumn, actualItemCount, 1)
     .getValues();
 
+  const oldBeginningCounts = oldInventory
+    .getRange(config.firstItemRow, config.beginningColumn, actualItemCount, 1)
+    .getValues();
+
+  const employee = priorFile.getName().split(' - Timecard')[0].trim();
+
+  const newBeginningCounts = [];
+  for (let i = 0; i < actualItemCount; i++) {
+    const itemName = itemValues[i][0];
+    const ending = oldEndingCounts[i][0];
+    const beginning = oldBeginningCounts[i][0];
+
+    if (ending !== '' && ending !== null) {
+      newBeginningCounts.push([ending]);
+    } else if (beginning !== '' && beginning !== null) {
+      newBeginningCounts.push([beginning]);
+      Logger.log(employee + ' - ' + itemName + ' from Beginning — flag review');
+    } else {
+      newBeginningCounts.push(['']);
+    }
+  }
+
   newInventory
     .getRange(config.firstItemRow, config.beginningColumn, actualItemCount, 1)
-    .setValues(oldEndingCounts);
+    .setValues(newBeginningCounts);
 
   newInventory
     .getRange(config.firstItemRow, config.beginningColumn, actualItemCount, 1)
