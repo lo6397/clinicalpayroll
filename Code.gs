@@ -2411,3 +2411,232 @@ function fixCurrentTimecardDateAndBanner() {
     renamedCount + ' timecard files.'
   );
 }
+function copyPriorEndingToCurrentBeginning() {
+  const DRY_RUN = true;
+
+  const CURRENT_PAY_DATE_STRING = '06-05-2026';
+
+  const INFUSION_ARCHIVE_PARENT = '11e24KTEMKtPKEqDKY8gdwp5hsB6H1Wp1';
+  const INFUSION_ARCHIVE_SUBFOLDER_NAME = '5/4-5/17_Time_Cards';
+  const VASCULAR_ARCHIVE_PARENT = '1kF1oZsaaXQGUNArRM58xp1Ac7tqLIDzG';
+  const VASCULAR_ARCHIVE_SUBFOLDER_NAME = '5/4-5/17_PV';
+
+  const INVENTORY_SHEET_NAME = 'Inventory';
+
+  const SERVICE_LINES = [
+    {
+      name: 'Infusion',
+      archiveParent: INFUSION_ARCHIVE_PARENT,
+      archiveSubfolderName: INFUSION_ARCHIVE_SUBFOLDER_NAME,
+      currentParentIds: [
+        '1abALtYC_Bcdnl-J06wtOxyJQI6XFdpQs',
+        '1qF4Nv_MLLOEbd4i8nb6PF_2TsnryH0o2',
+        '1B4ZbEOPkQ8GW-RETHpWLcQDob137SRhG',
+        '1Y3kbrNn_v2E8oyJQYCiH0Swj8m2bmwna'
+      ],
+      config: { itemColumn: 2, beginningColumn: 3, endingColumn: 5, firstItemRow: 3 }
+    },
+    {
+      name: 'Vascular',
+      archiveParent: VASCULAR_ARCHIVE_PARENT,
+      archiveSubfolderName: VASCULAR_ARCHIVE_SUBFOLDER_NAME,
+      currentParentIds: ['185swROseZQ4U1nRhHtD-pFNIRx0DIz19'],
+      config: { itemColumn: 1, beginningColumn: 2, endingColumn: 4, firstItemRow: 3 }
+    }
+  ];
+
+  let employeesProcessed = 0;
+  let itemsWritten = 0;
+  let itemsPreserved = 0;
+  let itemsMissing = 0;
+  let employeesSkipped = 0;
+
+  SERVICE_LINES.forEach(function(sl) {
+    const cfg = sl.config;
+
+    // a. Open the archive parent and find the period subfolder
+    const archiveParentFolder = DriveApp.getFolderById(sl.archiveParent);
+    const periodMatches = archiveParentFolder.getFoldersByName(sl.archiveSubfolderName);
+
+    if (!periodMatches.hasNext()) {
+      Logger.log('ERROR: archive subfolder "' + sl.archiveSubfolderName + '" not found in ' + sl.name + ' archive parent. Skipping service line.');
+      return;
+    }
+
+    const archivePeriodFolder = periodMatches.next();
+
+    // b. Iterate every archived employee subfolder
+    const archivedEmployeeFolders = archivePeriodFolder.getFolders();
+
+    while (archivedEmployeeFolders.hasNext()) {
+      const archivedEmployeeFolder = archivedEmployeeFolders.next();
+      const employeeName = archivedEmployeeFolder.getName();
+
+      try {
+        // c. Find the archived timecard (most recently updated if several)
+        const archivedFiles = archivedEmployeeFolder.getFiles();
+        let archivedTimecard = null;
+        let newestDate = null;
+
+        while (archivedFiles.hasNext()) {
+          const f = archivedFiles.next();
+          if (!f.getName().includes('Timecard')) continue;
+
+          const updated = f.getLastUpdated();
+          if (!newestDate || updated > newestDate) {
+            newestDate = updated;
+            archivedTimecard = f;
+          }
+        }
+
+        if (!archivedTimecard) {
+          Logger.log('SKIP: no archived timecard for ' + employeeName);
+          employeesSkipped++;
+          continue;
+        }
+
+        // d. Read item names + ending values from the archived Inventory tab
+        const archiveSs = SpreadsheetApp.openById(archivedTimecard.getId());
+        const archiveInventory = archiveSs.getSheetByName(INVENTORY_SHEET_NAME);
+
+        if (!archiveInventory) {
+          Logger.log('SKIP: no Inventory tab in archived timecard for ' + employeeName);
+          employeesSkipped++;
+          continue;
+        }
+
+        const archiveNumRows = archiveInventory.getMaxRows() - cfg.firstItemRow + 1;
+        const archiveItemNames = archiveInventory.getRange(cfg.firstItemRow, cfg.itemColumn, archiveNumRows, 1).getValues();
+        const archiveEndingVals = archiveInventory.getRange(cfg.firstItemRow, cfg.endingColumn, archiveNumRows, 1).getValues();
+
+        const archiveItems = [];
+        for (let i = 0; i < archiveNumRows; i++) {
+          const itemName = archiveItemNames[i][0];
+          if (itemName === '' || itemName === null) break;
+
+          archiveItems.push({
+            name: String(itemName),
+            normalized: String(itemName).trim().toLowerCase(),
+            ending: archiveEndingVals[i][0]
+          });
+        }
+
+        // e. Find the matching current employee folder (exact name) across current parents
+        let currentFolder = null;
+        for (let p = 0; p < sl.currentParentIds.length && !currentFolder; p++) {
+          const currentParent = DriveApp.getFolderById(sl.currentParentIds[p]);
+          const folderMatches = currentParent.getFoldersByName(employeeName);
+          if (folderMatches.hasNext()) {
+            currentFolder = folderMatches.next();
+          }
+        }
+
+        if (!currentFolder) {
+          Logger.log('SKIP: no current folder for archived ' + employeeName);
+          employeesSkipped++;
+          continue;
+        }
+
+        // f. Find the current timecard in that folder
+        const currentFiles = currentFolder.getFiles();
+        let currentTimecard = null;
+
+        while (currentFiles.hasNext()) {
+          const f = currentFiles.next();
+          const fn = f.getName();
+          if (fn.includes('Timecard') && fn.includes(CURRENT_PAY_DATE_STRING)) {
+            currentTimecard = f;
+            break;
+          }
+        }
+
+        if (!currentTimecard) {
+          Logger.log('SKIP: no current timecard for ' + employeeName);
+          employeesSkipped++;
+          continue;
+        }
+
+        // g. Read the current Inventory tab and build a lookup of items
+        const currentSs = SpreadsheetApp.openById(currentTimecard.getId());
+        const currentInventory = currentSs.getSheetByName(INVENTORY_SHEET_NAME);
+
+        if (!currentInventory) {
+          Logger.log('SKIP: no Inventory tab in current timecard for ' + employeeName);
+          employeesSkipped++;
+          continue;
+        }
+
+        const currentNumRows = currentInventory.getMaxRows() - cfg.firstItemRow + 1;
+        const currentItemNames = currentInventory.getRange(cfg.firstItemRow, cfg.itemColumn, currentNumRows, 1).getValues();
+        const currentBeginningVals = currentInventory.getRange(cfg.firstItemRow, cfg.beginningColumn, currentNumRows, 1).getValues();
+
+        const currentItems = [];
+        const currentMap = {};
+
+        for (let i = 0; i < currentNumRows; i++) {
+          const itemName = currentItemNames[i][0];
+          if (itemName === '' || itemName === null) break;
+
+          const normalized = String(itemName).trim().toLowerCase();
+          const row = cfg.firstItemRow + i;
+
+          currentItems.push({ name: String(itemName), normalized: normalized });
+          currentMap[normalized] = { row: row, beginning: currentBeginningVals[i][0] };
+        }
+
+        // For each archived item, write into current beginning (unless already filled in)
+        const matchedCurrent = {};
+
+        archiveItems.forEach(function(ai) {
+          const match = currentMap[ai.normalized];
+
+          if (!match) {
+            Logger.log('MISSING ITEM: ' + employeeName + ' - ' + ai.name + ' not found in current timecard.');
+            itemsMissing++;
+            return;
+          }
+
+          matchedCurrent[ai.normalized] = true;
+
+          const currentValue = match.beginning;
+          const isBlank = (currentValue === '' || currentValue === null);
+
+          if (!isBlank) {
+            Logger.log('PRESERVED: ' + employeeName + ' - ' + ai.name + ' - existing value ' + currentValue + ', would have written ' + ai.ending);
+            itemsPreserved++;
+            return;
+          }
+
+          if (DRY_RUN) {
+            Logger.log('DRY RUN - WROTE: ' + employeeName + ' - ' + ai.name + ' -> ' + ai.ending);
+          } else {
+            currentInventory.getRange(match.row, cfg.beginningColumn).setValue(ai.ending);
+            Logger.log('WROTE: ' + employeeName + ' - ' + ai.name + ' -> ' + ai.ending);
+          }
+
+          itemsWritten++;
+        });
+
+        // h. Items in current but not in archive
+        currentItems.forEach(function(ci) {
+          if (!matchedCurrent[ci.normalized]) {
+            Logger.log('NEW ITEM: ' + employeeName + ' - ' + ci.name + ' in current but not in archive.');
+          }
+        });
+
+        employeesProcessed++;
+      } catch (err) {
+        Logger.log('ERROR processing ' + employeeName + ' [' + sl.name + ']: ' + err);
+      }
+    }
+  });
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
+    'Employees processed: ' + employeesProcessed +
+    ', Items written: ' + itemsWritten +
+    ', Items preserved: ' + itemsPreserved +
+    ', Items missing: ' + itemsMissing +
+    ', Employees skipped: ' + employeesSkipped
+  );
+}
