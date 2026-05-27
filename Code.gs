@@ -2744,3 +2744,99 @@ function debugArchiveFolderStructure() {
     }
   });
 }
+function debugArchiveCurrentFolderMatches() {
+  const INFUSION_ARCHIVE_PERIOD_FOLDER_ID = '1xhwiI-IpEA2POzXftHN2NkGZrLDI2fxE';
+  const VASCULAR_ARCHIVE_PERIOD_FOLDER_ID = '1c37xYxv9oozS4lGHB7PzEiVCf0bcdtrT';
+
+  const SERVICE_LINES = [
+    {
+      name: 'Infusion',
+      archivePeriodFolderId: INFUSION_ARCHIVE_PERIOD_FOLDER_ID,
+      currentParentIds: [
+        '1abALtYC_Bcdnl-J06wtOxyJQI6XFdpQs',
+        '1qF4Nv_MLLOEbd4i8nb6PF_2TsnryH0o2',
+        '1B4ZbEOPkQ8GW-RETHpWLcQDob137SRhG',
+        '1Y3kbrNn_v2E8oyJQYCiH0Swj8m2bmwna'
+      ]
+    },
+    {
+      name: 'Vascular',
+      archivePeriodFolderId: VASCULAR_ARCHIVE_PERIOD_FOLDER_ID,
+      currentParentIds: ['185swROseZQ4U1nRhHtD-pFNIRx0DIz19']
+    }
+  ];
+
+  SERVICE_LINES.forEach(function(sl) {
+    // Build the list of current employee folder names
+    const currentFolderNames = [];
+
+    sl.currentParentIds.forEach(function(parentId) {
+      try {
+        const parentFolder = DriveApp.getFolderById(parentId);
+        const subfolders = parentFolder.getFolders();
+        while (subfolders.hasNext()) {
+          currentFolderNames.push(subfolders.next().getName());
+        }
+      } catch (err) {
+        Logger.log('ERROR opening current parent ' + parentId + ' [' + sl.name + ']: ' + err);
+      }
+    });
+
+    Logger.log('=== CURRENT [' + sl.name + '] FOLDERS ===');
+    currentFolderNames.forEach(function(n) {
+      Logger.log('  ' + n);
+    });
+
+    // Exact-name lookup (mirrors getFoldersByName used by the real sync)
+    const currentSet = {};
+    currentFolderNames.forEach(function(n) {
+      currentSet[n] = true;
+    });
+
+    let matches = 0;
+    let nonMatches = 0;
+
+    let archivePeriodFolder;
+    try {
+      archivePeriodFolder = DriveApp.getFolderById(sl.archivePeriodFolderId);
+    } catch (err) {
+      Logger.log('ERROR opening ' + sl.name + ' archive period folder ' + sl.archivePeriodFolderId + ': ' + err);
+      return;
+    }
+
+    Logger.log('=== ARCHIVE MATCH RESULTS [' + sl.name + '] ===');
+
+    const archiveFiles = archivePeriodFolder.getFiles();
+
+    while (archiveFiles.hasNext()) {
+      const archiveFile = archiveFiles.next();
+      const archiveFileName = archiveFile.getName();
+
+      if (!archiveFileName.includes('Timecard')) continue;
+      if (!/Pay Date \d{2}-\d{2}-\d{4}/.test(archiveFileName)) continue;
+      if (archiveFileName.includes('Processed')) continue;
+      if (archiveFileName.includes('Summary')) continue;
+      if (archiveFileName.includes('ZZ_ARCHIVE_PAYROLL')) continue;
+
+      const archiveName = archiveFileName.split(' - Timecard')[0].trim();
+
+      if (currentSet[archiveName]) {
+        Logger.log('MATCH: ' + archiveName);
+        matches++;
+      } else {
+        // Suggest near-misses: current folders starting with the same last-name prefix
+        const lastNamePart = (archiveName.split(',')[0] || '').trim().toLowerCase();
+        const prefix = lastNamePart.substring(0, 4);
+
+        const closest = currentFolderNames.filter(function(n) {
+          return prefix.length > 0 && n.trim().toLowerCase().indexOf(prefix) === 0;
+        });
+
+        Logger.log('NO MATCH: ' + archiveName + ' — closest current folders containing the last name: ' + (closest.length > 0 ? closest.join(', ') : 'none'));
+        nonMatches++;
+      }
+    }
+
+    Logger.log('TOTALS [' + sl.name + '] — matches: ' + matches + ', non-matches: ' + nonMatches);
+  });
+}
