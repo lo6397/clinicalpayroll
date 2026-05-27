@@ -2675,3 +2675,53 @@ function debugInspectArchivePeriodFolders() {
     }
   });
 }
+function debugArchiveFolderStructure() {
+  const INFUSION_ARCHIVE_PERIOD_FOLDER_ID = '1xhwiI-IpEA2POzXftHN2NkGZrLDI2fxE';
+  const VASCULAR_ARCHIVE_PERIOD_FOLDER_ID = '1c37xYxv9oozS4lGHB7PzEiVCf0bcdtrT';
+
+  const ARCHIVES = [
+    { name: 'Infusion', id: INFUSION_ARCHIVE_PERIOD_FOLDER_ID },
+    { name: 'Vascular', id: VASCULAR_ARCHIVE_PERIOD_FOLDER_ID }
+  ];
+
+  ARCHIVES.forEach(function(archive) {
+    try {
+      const folder = DriveApp.getFolderById(archive.id);
+
+      Logger.log('=== ARCHIVE [' + archive.name + ']: ' + folder.getName() + ' ===');
+
+      // Subfolders (log all names, peek inside the first 3)
+      const subfolders = folder.getFolders();
+      let subfolderCount = 0;
+
+      while (subfolders.hasNext()) {
+        const subfolder = subfolders.next();
+        subfolderCount++;
+
+        Logger.log('  SUBFOLDER: ' + subfolder.getName());
+
+        if (subfolderCount <= 3) {
+          const subFiles = subfolder.getFiles();
+          while (subFiles.hasNext()) {
+            const sf = subFiles.next();
+            Logger.log('    FILE in ' + subfolder.getName() + ': ' + sf.getName());
+          }
+        }
+      }
+
+      // Files directly inside the archive folder
+      const files = folder.getFiles();
+      let fileCount = 0;
+
+      while (files.hasNext()) {
+        const file = files.next();
+        fileCount++;
+        Logger.log('  FILE: ' + file.getName());
+      }
+
+      Logger.log('  TOTALS [' + archive.name + '] — subfolders: ' + subfolderCount + ', files: ' + fileCount);
+    } catch (err) {
+      Logger.log('ERROR opening ' + archive.name + ' archive folder ' + archive.id + ': ' + err);
+    }
+  });
+}
