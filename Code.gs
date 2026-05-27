@@ -295,9 +295,9 @@ function getMostRecentTimecard(employeeFolder) {
 
 function getCurrentRunInfo() {
   const anchorRunDate = new Date(2026, 4, 20);       // May 20, 2026 (Wed)
-  const anchorPayDate = new Date(2026, 4, 22);       // May 22, 2026 (Fri)
-  const anchorPeriodStart = new Date(2026, 4, 4);    // May 4, 2026 (Mon)
-  const anchorPeriodEnd = new Date(2026, 4, 17);     // May 17, 2026 (Sun)
+  const anchorPayDate = new Date(2026, 5, 5);        // June 5, 2026 (Fri)
+  const anchorPeriodStart = new Date(2026, 4, 18);   // May 18, 2026 (Mon)
+  const anchorPeriodEnd = new Date(2026, 4, 31);     // May 31, 2026 (Sun)
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -3090,4 +3090,49 @@ function buildMasterInventorySummary() {
   });
 
   Logger.log(DRY_RUN ? 'DRY RUN complete. No changes written to master sheet.' : 'Done. Master inventory summary rebuilt.');
+}
+function testDateLogic() {
+  // getCurrentRunInfo reads the system clock and isn't parameterized, so this
+  // mirrors its exact logic (with the same anchors) for specific simulated run
+  // dates to verify the output.
+  function runInfoForDate(today) {
+    const anchorRunDate = new Date(2026, 4, 20);       // May 20, 2026 (Wed)
+    const anchorPayDate = new Date(2026, 5, 5);        // June 5, 2026 (Fri)
+    const anchorPeriodStart = new Date(2026, 4, 18);   // May 18, 2026 (Mon)
+    const anchorPeriodEnd = new Date(2026, 4, 31);     // May 31, 2026 (Sun)
+
+    const t = new Date(today);
+    t.setHours(0, 0, 0, 0);
+
+    const daysSinceAnchor = Math.floor(
+      (t - anchorRunDate) / (1000 * 60 * 60 * 24)
+    );
+
+    const cycleOffset = Math.max(0, Math.floor(daysSinceAnchor / 14));
+
+    return {
+      currentPeriodStart: addDays(anchorPeriodStart, cycleOffset * 14),
+      currentPeriodEnd: addDays(anchorPeriodEnd, cycleOffset * 14),
+      payDate: addDays(anchorPayDate, cycleOffset * 14)
+    };
+  }
+
+  function fmt(d) {
+    return Utilities.formatDate(d, Session.getScriptTimeZone(), 'MM-dd-yyyy');
+  }
+
+  const testDates = [
+    new Date(2026, 5, 3),   // June 3, 2026 (next scheduled run)
+    new Date(2026, 5, 17),  // June 17, 2026
+    new Date(2026, 6, 1)    // July 1, 2026
+  ];
+
+  testDates.forEach(function(d) {
+    const info = runInfoForDate(d);
+    Logger.log(
+      'Run ' + fmt(d) +
+      ' -> period ' + fmt(info.currentPeriodStart) + ' to ' + fmt(info.currentPeriodEnd) +
+      ', pay date ' + fmt(info.payDate)
+    );
+  });
 }
