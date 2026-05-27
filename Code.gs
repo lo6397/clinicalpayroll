@@ -9,7 +9,8 @@ function runAllTimecards() {
 
   createInfusionTimecards();
   createPVTimecards();
-  createCorporateTimecards();
+  // createCorporateTimecards() is not implemented yet — create Corporate timecards manually until it exists.
+  // createCorporateTimecards();
 }
 
 /************ INFUSION ************/
