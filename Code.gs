@@ -2331,3 +2331,83 @@ function debugListAllEmployeeFolders() {
     ', Corporate: ' + counts.Corporate
   );
 }
+function fixCurrentTimecardDateAndBanner() {
+  const WRONG_PAY_DATE = '05-22-2026';
+  const CORRECT_PAY_DATE = '06-05-2026';
+  const CORRECT_PERIOD_START_TEXT = '5/18';
+  const CORRECT_PERIOD_END_TEXT = '5/31';
+  const DRY_RUN = true;
+
+  const PARENT_FOLDER_IDS = [
+    '1abALtYC_Bcdnl-J06wtOxyJQI6XFdpQs',
+    '1qF4Nv_MLLOEbd4i8nb6PF_2TsnryH0o2',
+    '1B4ZbEOPkQ8GW-RETHpWLcQDob137SRhG',
+    '1Y3kbrNn_v2E8oyJQYCiH0Swj8m2bmwna',
+    '185swROseZQ4U1nRhHtD-pFNIRx0DIz19',
+    '1UfIBI1wHcMbV_cz9KZSVfI8ud933gOBO'
+  ];
+
+  const bannerText =
+    'Pay Period: ' + CORRECT_PERIOD_START_TEXT + ' - ' + CORRECT_PERIOD_END_TEXT;
+
+  let renamedCount = 0;
+
+  PARENT_FOLDER_IDS.forEach(function(parentFolderId) {
+    const parentFolder = DriveApp.getFolderById(parentFolderId);
+    const employeeFolders = parentFolder.getFolders();
+
+    while (employeeFolders.hasNext()) {
+      const employeeFolder = employeeFolders.next();
+      const files = employeeFolder.getFiles();
+
+      while (files.hasNext()) {
+        const file = files.next();
+        const fileName = file.getName();
+
+        if (!fileName.includes('Timecard')) continue;
+        if (!fileName.includes(WRONG_PAY_DATE)) continue;
+
+        const newName = fileName.replace(WRONG_PAY_DATE, CORRECT_PAY_DATE);
+
+        try {
+          if (DRY_RUN) {
+            Logger.log('DRY RUN - UPDATED BANNER: ' + fileName);
+            Logger.log('DRY RUN - RENAMED: ' + fileName + ' -> ' + newName);
+            renamedCount++;
+            continue;
+          }
+
+          const spreadsheet = SpreadsheetApp.openById(file.getId());
+          const timecardSheet = spreadsheet.getSheetByName('TimeCardNotes');
+
+          if (timecardSheet) {
+            const bannerRange = timecardSheet.getRange('C1:E1');
+
+            bannerRange.setValue(bannerText);
+            bannerRange.setFontWeight('bold');
+            bannerRange.setFontSize(14);
+            bannerRange.setBackground('#FFF2CC');
+            bannerRange.setHorizontalAlignment('center');
+            bannerRange.setVerticalAlignment('middle');
+
+            Logger.log('UPDATED BANNER: ' + fileName);
+          } else {
+            Logger.log('WARNING: No TimeCardNotes sheet in ' + fileName);
+          }
+
+          file.setName(newName);
+          Logger.log('RENAMED: ' + fileName + ' -> ' + newName);
+
+          renamedCount++;
+        } catch (err) {
+          Logger.log('ERROR processing ' + fileName + ': ' + err);
+        }
+      }
+    }
+  });
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. Would process ' : 'Done. Processed ') +
+    renamedCount + ' timecard files.'
+  );
+}
