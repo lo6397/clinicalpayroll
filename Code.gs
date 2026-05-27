@@ -2441,16 +2441,19 @@ function copyPriorEndingToCurrentBeginning() {
     }
   ];
 
-  let employeesProcessed = 0;
-  let itemsWritten = 0;
+  let archiveFilesProcessed = 0;
+  let employeesMatched = 0;
+  let itemsWritten = 0;          // from Ending
+  let itemsWroteCorrected = 0;   // from Beginning (flag review)
   let itemsPreserved = 0;
   let itemsMissing = 0;
+  let itemsNew = 0;
   let employeesSkipped = 0;
 
   SERVICE_LINES.forEach(function(sl) {
     const cfg = sl.config;
 
-    // a. Open the archive period folder directly by its hardcoded ID
+    // Open the archive period folder directly by its hardcoded ID
     let archivePeriodFolder;
     try {
       archivePeriodFolder = DriveApp.getFolderById(sl.archivePeriodFolderId);
@@ -2459,38 +2462,29 @@ function copyPriorEndingToCurrentBeginning() {
       return;
     }
 
-    // b. Iterate every archived employee subfolder
-    const archivedEmployeeFolders = archivePeriodFolder.getFolders();
+    // Iterate every file directly inside the archive folder (no subfolders)
+    const archiveFiles = archivePeriodFolder.getFiles();
 
-    while (archivedEmployeeFolders.hasNext()) {
-      const archivedEmployeeFolder = archivedEmployeeFolders.next();
-      const employeeName = archivedEmployeeFolder.getName();
+    while (archiveFiles.hasNext()) {
+      const archiveFile = archiveFiles.next();
+      const archiveFileName = archiveFile.getName();
+
+      // Only archived timecard files; skip processed/summary/archive artifacts
+      if (!archiveFileName.includes('Timecard')) continue;
+      if (!/Pay Date \d{2}-\d{2}-\d{4}/.test(archiveFileName)) continue;
+      if (archiveFileName.includes('Processed')) continue;
+      if (archiveFileName.includes('Summary')) continue;
+      if (archiveFileName.includes('Archive')) continue;
+      if (archiveFileName.includes('ZZ_ARCHIVE_PAYROLL')) continue;
 
       try {
-        // c. Find the archived timecard (most recently updated if several)
-        const archivedFiles = archivedEmployeeFolder.getFiles();
-        let archivedTimecard = null;
-        let newestDate = null;
+        archiveFilesProcessed++;
 
-        while (archivedFiles.hasNext()) {
-          const f = archivedFiles.next();
-          if (!f.getName().includes('Timecard')) continue;
+        // Employee folder name = everything before " - Timecard"
+        const employeeName = archiveFileName.split(' - Timecard')[0].trim();
 
-          const updated = f.getLastUpdated();
-          if (!newestDate || updated > newestDate) {
-            newestDate = updated;
-            archivedTimecard = f;
-          }
-        }
-
-        if (!archivedTimecard) {
-          Logger.log('SKIP: no archived timecard for ' + employeeName);
-          employeesSkipped++;
-          continue;
-        }
-
-        // d. Read item names + ending values from the archived Inventory tab
-        const archiveSs = SpreadsheetApp.openById(archivedTimecard.getId());
+        // Read the archived Inventory tab
+        const archiveSs = SpreadsheetApp.openById(archiveFile.getId());
         const archiveInventory = archiveSs.getSheetByName(INVENTORY_SHEET_NAME);
 
         if (!archiveInventory) {
@@ -2501,6 +2495,7 @@ function copyPriorEndingToCurrentBeginning() {
 
         const archiveNumRows = archiveInventory.getMaxRows() - cfg.firstItemRow + 1;
         const archiveItemNames = archiveInventory.getRange(cfg.firstItemRow, cfg.itemColumn, archiveNumRows, 1).getValues();
+        const archiveBeginningVals = archiveInventory.getRange(cfg.firstItemRow, cfg.beginningColumn, archiveNumRows, 1).getValues();
         const archiveEndingVals = archiveInventory.getRange(cfg.firstItemRow, cfg.endingColumn, archiveNumRows, 1).getValues();
 
         const archiveItems = [];
@@ -2508,14 +2503,29 @@ function copyPriorEndingToCurrentBeginning() {
           const itemName = archiveItemNames[i][0];
           if (itemName === '' || itemName === null) break;
 
+          const beginningVal = archiveBeginningVals[i][0];
+          const endingVal = archiveEndingVals[i][0];
+
+          let trueValue = null;
+          let source = null;
+
+          if (endingVal !== '' && endingVal !== null) {
+            trueValue = endingVal;
+            source = 'Ending';
+          } else if (beginningVal !== '' && beginningVal !== null) {
+            trueValue = beginningVal;
+            source = 'Beginning';
+          }
+
           archiveItems.push({
             name: String(itemName),
             normalized: String(itemName).trim().toLowerCase(),
-            ending: archiveEndingVals[i][0]
+            trueValue: trueValue,
+            source: source
           });
         }
 
-        // e. Find the matching current employee folder (exact name) across current parents
+        // Find the matching current employee folder (exact name match)
         let currentFolder = null;
         for (let p = 0; p < sl.currentParentIds.length && !currentFolder; p++) {
           const currentParent = DriveApp.getFolderById(sl.currentParentIds[p]);
@@ -2526,12 +2536,12 @@ function copyPriorEndingToCurrentBeginning() {
         }
 
         if (!currentFolder) {
-          Logger.log('SKIP: no current folder for archived ' + employeeName);
+          Logger.log('SKIP: no current folder for ' + employeeName);
           employeesSkipped++;
           continue;
         }
 
-        // f. Find the current timecard in that folder
+        // Find the current timecard file
         const currentFiles = currentFolder.getFiles();
         let currentTimecard = null;
 
@@ -2550,7 +2560,7 @@ function copyPriorEndingToCurrentBeginning() {
           continue;
         }
 
-        // g. Read the current Inventory tab and build a lookup of items
+        // Read the current Inventory tab and build item name -> row map
         const currentSs = SpreadsheetApp.openById(currentTimecard.getId());
         const currentInventory = currentSs.getSheetByName(INVENTORY_SHEET_NAME);
 
@@ -2560,12 +2570,14 @@ function copyPriorEndingToCurrentBeginning() {
           continue;
         }
 
+        employeesMatched++;
+
         const currentNumRows = currentInventory.getMaxRows() - cfg.firstItemRow + 1;
         const currentItemNames = currentInventory.getRange(cfg.firstItemRow, cfg.itemColumn, currentNumRows, 1).getValues();
         const currentBeginningVals = currentInventory.getRange(cfg.firstItemRow, cfg.beginningColumn, currentNumRows, 1).getValues();
 
         const currentItems = [];
-        const currentMap = {};
+        const currentRowByName = {};
 
         for (let i = 0; i < currentNumRows; i++) {
           const itemName = currentItemNames[i][0];
@@ -2575,17 +2587,19 @@ function copyPriorEndingToCurrentBeginning() {
           const row = cfg.firstItemRow + i;
 
           currentItems.push({ name: String(itemName), normalized: normalized });
-          currentMap[normalized] = { row: row, beginning: currentBeginningVals[i][0] };
+          currentRowByName[normalized] = { row: row, beginning: currentBeginningVals[i][0] };
         }
 
-        // For each archived item, write into current beginning (unless already filled in)
         const matchedCurrent = {};
 
+        // Carry each archived item (that has a true value) into current Beginning
         archiveItems.forEach(function(ai) {
-          const match = currentMap[ai.normalized];
+          if (ai.trueValue === null) return; // archive had no data for this item
+
+          const match = currentRowByName[ai.normalized];
 
           if (!match) {
-            Logger.log('MISSING ITEM: ' + employeeName + ' - ' + ai.name + ' not found in current timecard.');
+            Logger.log('MISSING ITEM: ' + employeeName + ' - ' + ai.name + ' not found in current timecard');
             itemsMissing++;
             return;
           }
@@ -2596,41 +2610,46 @@ function copyPriorEndingToCurrentBeginning() {
           const isBlank = (currentValue === '' || currentValue === null);
 
           if (!isBlank) {
-            Logger.log('PRESERVED: ' + employeeName + ' - ' + ai.name + ' - existing value ' + currentValue + ', would have written ' + ai.ending);
+            Logger.log((DRY_RUN ? 'DRY RUN - ' : '') + 'PRESERVED: ' + employeeName + ' - ' + ai.name + ' - existing value ' + currentValue + ', would have written ' + ai.trueValue + ' (source: ' + ai.source + ')');
             itemsPreserved++;
             return;
           }
 
-          if (DRY_RUN) {
-            Logger.log('DRY RUN - WROTE: ' + employeeName + ' - ' + ai.name + ' -> ' + ai.ending);
-          } else {
-            currentInventory.getRange(match.row, cfg.beginningColumn).setValue(ai.ending);
-            Logger.log('WROTE: ' + employeeName + ' - ' + ai.name + ' -> ' + ai.ending);
+          if (!DRY_RUN) {
+            currentInventory.getRange(match.row, cfg.beginningColumn).setValue(ai.trueValue);
           }
 
-          itemsWritten++;
+          if (ai.source === 'Ending') {
+            Logger.log((DRY_RUN ? 'DRY RUN - ' : '') + 'WROTE: ' + employeeName + ' - ' + ai.name + ' -> ' + ai.trueValue + ' (from Ending)');
+            itemsWritten++;
+          } else {
+            Logger.log((DRY_RUN ? 'DRY RUN - ' : '') + 'WROTE-CORRECTED: ' + employeeName + ' - ' + ai.name + ' -> ' + ai.trueValue + ' (from archive Beginning — flag review)');
+            itemsWroteCorrected++;
+          }
         });
 
-        // h. Items in current but not in archive
+        // Items present in current but not in archive
         currentItems.forEach(function(ci) {
           if (!matchedCurrent[ci.normalized]) {
-            Logger.log('NEW ITEM: ' + employeeName + ' - ' + ci.name + ' in current but not in archive.');
+            Logger.log('NEW ITEM: ' + employeeName + ' - ' + ci.name + ' in current but not in archive');
+            itemsNew++;
           }
         });
-
-        employeesProcessed++;
       } catch (err) {
-        Logger.log('ERROR processing ' + employeeName + ' [' + sl.name + ']: ' + err);
+        Logger.log('ERROR processing archive file "' + archiveFileName + '" [' + sl.name + ']: ' + err);
       }
     }
   });
 
   Logger.log(
     (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
-    'Employees processed: ' + employeesProcessed +
-    ', Items written: ' + itemsWritten +
+    'Archive files processed: ' + archiveFilesProcessed +
+    ', Employees matched: ' + employeesMatched +
+    ', Items written (from Ending): ' + itemsWritten +
+    ', Items wrote-corrected (from Beginning — flag review): ' + itemsWroteCorrected +
     ', Items preserved: ' + itemsPreserved +
     ', Items missing: ' + itemsMissing +
+    ', Items new: ' + itemsNew +
     ', Employees skipped: ' + employeesSkipped
   );
 }
