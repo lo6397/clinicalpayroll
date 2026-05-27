@@ -2634,3 +2634,44 @@ function copyPriorEndingToCurrentBeginning() {
     ', Employees skipped: ' + employeesSkipped
   );
 }
+function debugInspectArchivePeriodFolders() {
+  const ARCHIVE_PERIOD_FOLDER_IDS = {
+    Infusion: '1xhwiI-IpEA2POzXftHN2NkGZrLDI2fxE',
+    Vascular: '1c37xYxv9oozS4lGHB7PzEiVCf0bcdtrT'
+  };
+
+  Object.keys(ARCHIVE_PERIOD_FOLDER_IDS).forEach(function(serviceLine) {
+    const folderId = ARCHIVE_PERIOD_FOLDER_IDS[serviceLine];
+
+    try {
+      const folder = DriveApp.getFolderById(folderId);
+      Logger.log('=== ' + serviceLine + ' archive period folder: ' + folder.getName() + ' (' + folderId + ') ===');
+
+      // Direct subfolders
+      const subfolders = folder.getFolders();
+      let subfolderCount = 0;
+      while (subfolders.hasNext()) {
+        const sf = subfolders.next();
+        subfolderCount++;
+        if (subfolderCount <= 10) {
+          Logger.log('  SUBFOLDER: ' + sf.getName());
+        }
+      }
+      Logger.log('  Total subfolders directly inside: ' + subfolderCount);
+
+      // Direct files
+      const files = folder.getFiles();
+      let fileCount = 0;
+      while (files.hasNext()) {
+        const f = files.next();
+        fileCount++;
+        if (fileCount <= 10) {
+          Logger.log('  FILE: ' + f.getName());
+        }
+      }
+      Logger.log('  Total files directly inside: ' + fileCount);
+    } catch (err) {
+      Logger.log('ERROR opening ' + serviceLine + ' archive period folder ' + folderId + ': ' + err);
+    }
+  });
+}
