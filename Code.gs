@@ -2416,18 +2416,15 @@ function copyPriorEndingToCurrentBeginning() {
 
   const CURRENT_PAY_DATE_STRING = '06-05-2026';
 
-  const INFUSION_ARCHIVE_PARENT = '11e24KTEMKtPKEqDKY8gdwp5hsB6H1Wp1';
-  const INFUSION_ARCHIVE_SUBFOLDER_NAME = '5/4-5/17_Time_Cards';
-  const VASCULAR_ARCHIVE_PARENT = '1kF1oZsaaXQGUNArRM58xp1Ac7tqLIDzG';
-  const VASCULAR_ARCHIVE_SUBFOLDER_NAME = '5/4-5/17_PV';
+  const INFUSION_ARCHIVE_PERIOD_FOLDER_ID = '1xhwiI-IpEA2POzXftHN2NkGZrLDI2fxE';
+  const VASCULAR_ARCHIVE_PERIOD_FOLDER_ID = '1c37xYxv9oozS4lGHB7PzEiVCf0bcdtrT';
 
   const INVENTORY_SHEET_NAME = 'Inventory';
 
   const SERVICE_LINES = [
     {
       name: 'Infusion',
-      archiveParent: INFUSION_ARCHIVE_PARENT,
-      archiveSubfolderName: INFUSION_ARCHIVE_SUBFOLDER_NAME,
+      archivePeriodFolderId: INFUSION_ARCHIVE_PERIOD_FOLDER_ID,
       currentParentIds: [
         '1abALtYC_Bcdnl-J06wtOxyJQI6XFdpQs',
         '1qF4Nv_MLLOEbd4i8nb6PF_2TsnryH0o2',
@@ -2438,8 +2435,7 @@ function copyPriorEndingToCurrentBeginning() {
     },
     {
       name: 'Vascular',
-      archiveParent: VASCULAR_ARCHIVE_PARENT,
-      archiveSubfolderName: VASCULAR_ARCHIVE_SUBFOLDER_NAME,
+      archivePeriodFolderId: VASCULAR_ARCHIVE_PERIOD_FOLDER_ID,
       currentParentIds: ['185swROseZQ4U1nRhHtD-pFNIRx0DIz19'],
       config: { itemColumn: 1, beginningColumn: 2, endingColumn: 4, firstItemRow: 3 }
     }
@@ -2454,16 +2450,14 @@ function copyPriorEndingToCurrentBeginning() {
   SERVICE_LINES.forEach(function(sl) {
     const cfg = sl.config;
 
-    // a. Open the archive parent and find the period subfolder
-    const archiveParentFolder = DriveApp.getFolderById(sl.archiveParent);
-    const periodMatches = archiveParentFolder.getFoldersByName(sl.archiveSubfolderName);
-
-    if (!periodMatches.hasNext()) {
-      Logger.log('ERROR: archive subfolder "' + sl.archiveSubfolderName + '" not found in ' + sl.name + ' archive parent. Skipping service line.');
+    // a. Open the archive period folder directly by its hardcoded ID
+    let archivePeriodFolder;
+    try {
+      archivePeriodFolder = DriveApp.getFolderById(sl.archivePeriodFolderId);
+    } catch (err) {
+      Logger.log('ERROR: could not open ' + sl.name + ' archive period folder ' + sl.archivePeriodFolderId + ': ' + err + '. Skipping service line.');
       return;
     }
-
-    const archivePeriodFolder = periodMatches.next();
 
     // b. Iterate every archived employee subfolder
     const archivedEmployeeFolders = archivePeriodFolder.getFolders();
