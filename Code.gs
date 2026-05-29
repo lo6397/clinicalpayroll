@@ -3394,3 +3394,25 @@ function trashAllSheetsInVascularFolders() {
     ', Errors: ' + errors
   );
 }
+function installExcelConversionTrigger() {
+  const HANDLER = 'convertExcelToGoogleSheetsInVascularFolders';
+
+  // Remove any existing triggers for this handler so re-running doesn't stack duplicates
+  let removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === HANDLER) {
+      ScriptApp.deleteTrigger(trigger);
+      removed++;
+    }
+  });
+
+  ScriptApp.newTrigger(HANDLER)
+    .timeBased()
+    .everyHours(1)
+    .create();
+
+  Logger.log(
+    'Installed hourly trigger for ' + HANDLER +
+    (removed > 0 ? ' (removed ' + removed + ' existing trigger(s) first)' : '')
+  );
+}
