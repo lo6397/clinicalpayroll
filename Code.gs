@@ -3163,110 +3163,101 @@ function testDateLogic() {
 function replaceInventoryTabsWithFormLink() {
   const CURRENT_PAY_DATE_STRING = '06-05-2026';
   const PAY_PERIOD_DATES = '5/18 - 5/31';
-  const FORM_URL = 'https://forms.clickup.com/9017962545/f/8cr6c1h-8417/S1B47HI0Z0GR2VM7L2';
+  const VASCULAR_FORM_URL = 'https://forms.clickup.com/9017962545/f/8cr6c1h-8417/S1B47HI0Z0GR2VM7L2';
+  const VASCULAR_PARENT_FOLDER_ID = '185swROseZQ4U1nRhHtD-pFNIRx0DIz19';
   const INVENTORY_SHEET_NAME = 'Inventory';
   const DRY_RUN = true;
-
-  const PARENT_FOLDER_IDS = [
-    '1abALtYC_Bcdnl-J06wtOxyJQI6XFdpQs',
-    '1qF4Nv_MLLOEbd4i8nb6PF_2TsnryH0o2',
-    '1B4ZbEOPkQ8GW-RETHpWLcQDob137SRhG',
-    '1Y3kbrNn_v2E8oyJQYCiH0Swj8m2bmwna',
-    '185swROseZQ4U1nRhHtD-pFNIRx0DIz19'
-  ];
 
   let foldersWalked = 0;
   let updated = 0;
   let skipped = 0;
   let errors = 0;
 
-  PARENT_FOLDER_IDS.forEach(function(parentId) {
-    const parentFolder = DriveApp.getFolderById(parentId);
-    const employeeFolders = parentFolder.getFolders();
+  const parentFolder = DriveApp.getFolderById(VASCULAR_PARENT_FOLDER_ID);
+  const employeeFolders = parentFolder.getFolders();
 
-    while (employeeFolders.hasNext()) {
-      const employeeFolder = employeeFolders.next();
-      const employeeName = employeeFolder.getName();
+  while (employeeFolders.hasNext()) {
+    const employeeFolder = employeeFolders.next();
+    const employeeName = employeeFolder.getName();
 
-      if (employeeName.toLowerCase().includes('archive')) continue;
+    if (employeeName.toLowerCase().includes('archive')) continue;
 
-      foldersWalked++;
+    foldersWalked++;
 
-      // Find the current timecard spreadsheet
-      const files = employeeFolder.getFiles();
-      let timecard = null;
+    // Find the current timecard spreadsheet
+    const files = employeeFolder.getFiles();
+    let timecard = null;
 
-      while (files.hasNext()) {
-        const f = files.next();
-        const fn = f.getName();
+    while (files.hasNext()) {
+      const f = files.next();
+      const fn = f.getName();
 
-        if (!fn.includes('Timecard')) continue;
-        if (!fn.includes(CURRENT_PAY_DATE_STRING)) continue;
-        if (fn.includes('Processed')) continue;
-        if (fn.includes('Summary')) continue;
-        if (fn.includes('ZZ_ARCHIVE_PAYROLL')) continue;
+      if (!fn.includes('Timecard')) continue;
+      if (!fn.includes(CURRENT_PAY_DATE_STRING)) continue;
+      if (fn.includes('Processed')) continue;
+      if (fn.includes('Summary')) continue;
+      if (fn.includes('ZZ_ARCHIVE_PAYROLL')) continue;
 
-        timecard = f;
-        break;
-      }
+      timecard = f;
+      break;
+    }
 
-      if (!timecard) {
-        Logger.log('SKIPPED (no timecard found): ' + employeeName);
+    if (!timecard) {
+      Logger.log('SKIPPED (no timecard found): ' + employeeName);
+      skipped++;
+      continue;
+    }
+
+    try {
+      const ss = SpreadsheetApp.openById(timecard.getId());
+      const inv = ss.getSheetByName(INVENTORY_SHEET_NAME);
+
+      if (!inv) {
+        Logger.log('SKIPPED (no inventory tab): ' + employeeName);
         skipped++;
         continue;
       }
 
-      try {
-        const ss = SpreadsheetApp.openById(timecard.getId());
-        const inv = ss.getSheetByName(INVENTORY_SHEET_NAME);
-
-        if (!inv) {
-          Logger.log('SKIPPED (no inventory tab): ' + employeeName);
-          skipped++;
-          continue;
-        }
-
-        if (DRY_RUN) {
-          Logger.log('DRY RUN - WROTE: ' + employeeName + ' (' + timecard.getName() + ')');
-          updated++;
-          continue;
-        }
-
-        // Wipe the tab entirely (values, formulas, formatting, merges)
-        inv.getRange(1, 1, inv.getMaxRows(), inv.getMaxColumns()).breakApart();
-        inv.clear();
-
-        // Header banner across A1:E1
-        inv.getRange('A1:E1').merge();
-        const headerCell = inv.getRange('A1');
-        headerCell.setValue('Inventory — Pay Period: ' + PAY_PERIOD_DATES);
-        headerCell.setFontWeight('bold');
-        headerCell.setFontSize(14);
-        headerCell.setBackground('#FFF2CC');
-        headerCell.setHorizontalAlignment('center');
-
-        // Inventory form hyperlink across A3:E3
-        inv.getRange('A3:E3').merge();
-        const linkCell = inv.getRange('A3');
-        linkCell.setFormula('=HYPERLINK("' + FORM_URL + '", "ENTER YOUR INVENTORY HERE")');
-        linkCell.setFontWeight('bold');
-        linkCell.setFontSize(18);
-        linkCell.setHorizontalAlignment('center');
-        inv.setRowHeight(3, 50);
-
-        // Auto-resize columns A through E
-        for (let c = 1; c <= 5; c++) {
-          inv.autoResizeColumn(c);
-        }
-
-        Logger.log('WROTE: ' + employeeName + ' (' + timecard.getName() + ')');
+      if (DRY_RUN) {
+        Logger.log('DRY RUN - WROTE: ' + employeeName + ' (' + timecard.getName() + ')');
         updated++;
-      } catch (err) {
-        Logger.log('ERROR: ' + employeeName + ': ' + err);
-        errors++;
+        continue;
       }
+
+      // Wipe the tab entirely (values, formulas, formatting, merges)
+      inv.getRange(1, 1, inv.getMaxRows(), inv.getMaxColumns()).breakApart();
+      inv.clear();
+
+      // Header banner across A1:E1
+      inv.getRange('A1:E1').merge();
+      const headerCell = inv.getRange('A1');
+      headerCell.setValue('Inventory — Pay Period: ' + PAY_PERIOD_DATES);
+      headerCell.setFontWeight('bold');
+      headerCell.setFontSize(14);
+      headerCell.setBackground('#FFF2CC');
+      headerCell.setHorizontalAlignment('center');
+
+      // Inventory form hyperlink across A3:E3
+      inv.getRange('A3:E3').merge();
+      const linkCell = inv.getRange('A3');
+      linkCell.setFormula('=HYPERLINK("' + VASCULAR_FORM_URL + '", "ENTER YOUR INVENTORY HERE")');
+      linkCell.setFontWeight('bold');
+      linkCell.setFontSize(18);
+      linkCell.setHorizontalAlignment('center');
+      inv.setRowHeight(3, 50);
+
+      // Auto-resize columns A through E
+      for (let c = 1; c <= 5; c++) {
+        inv.autoResizeColumn(c);
+      }
+
+      Logger.log('WROTE: ' + employeeName + ' (' + timecard.getName() + ')');
+      updated++;
+    } catch (err) {
+      Logger.log('ERROR: ' + employeeName + ': ' + err);
+      errors++;
     }
-  });
+  }
 
   Logger.log(
     (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
