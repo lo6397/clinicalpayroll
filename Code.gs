@@ -3416,3 +3416,76 @@ function installExcelConversionTrigger() {
     (removed > 0 ? ' (removed ' + removed + ' existing trigger(s) first)' : '')
   );
 }
+function deleteCurrentTimecardSpreadsheets() {
+  const CURRENT_PAY_DATE_STRING = '06-05-2026';
+  const DRY_RUN = true;
+
+  const PARENT_FOLDER_IDS = [
+    '1abALtYC_Bcdnl-J06wtOxyJQI6XFdpQs',
+    '1qF4Nv_MLLOEbd4i8nb6PF_2TsnryH0o2',
+    '1B4ZbEOPkQ8GW-RETHpWLcQDob137SRhG',
+    '1Y3kbrNn_v2E8oyJQYCiH0Swj8m2bmwna',
+    '185swROseZQ4U1nRhHtD-pFNIRx0DIz19'
+  ];
+
+  let foldersWalked = 0;
+  let trashed = 0;
+  let notFound = 0;
+  let errors = 0;
+
+  PARENT_FOLDER_IDS.forEach(function(parentId) {
+    const parentFolder = DriveApp.getFolderById(parentId);
+    const employeeFolders = parentFolder.getFolders();
+
+    while (employeeFolders.hasNext()) {
+      const employeeFolder = employeeFolders.next();
+      const employeeName = employeeFolder.getName();
+
+      if (employeeName.toLowerCase().includes('archive')) continue;
+
+      foldersWalked++;
+
+      const files = employeeFolder.getFiles();
+      let foundAny = false;
+
+      while (files.hasNext()) {
+        const file = files.next();
+        const fileName = file.getName();
+
+        if (!fileName.includes('Timecard')) continue;
+        if (!fileName.includes(CURRENT_PAY_DATE_STRING)) continue;
+        if (fileName.includes('Processed')) continue;
+        if (fileName.includes('Summary')) continue;
+        if (fileName.includes('ZZ_ARCHIVE_PAYROLL')) continue;
+
+        foundAny = true;
+
+        try {
+          if (DRY_RUN) {
+            Logger.log('DRY RUN - WOULD TRASH: ' + employeeName + ' / ' + fileName);
+          } else {
+            file.setTrashed(true);
+            Logger.log('TRASHED: ' + employeeName + ' / ' + fileName);
+          }
+          trashed++;
+        } catch (err) {
+          Logger.log('ERROR trashing ' + employeeName + ' / ' + fileName + ': ' + err);
+          errors++;
+        }
+      }
+
+      if (!foundAny) {
+        Logger.log('NOT FOUND: ' + employeeName);
+        notFound++;
+      }
+    }
+  });
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
+    'Folders walked: ' + foldersWalked +
+    ', Files ' + (DRY_RUN ? 'that would be trashed' : 'trashed') + ': ' + trashed +
+    ', Not found: ' + notFound +
+    ', Errors: ' + errors
+  );
+}
