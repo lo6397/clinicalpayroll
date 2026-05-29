@@ -3267,3 +3267,130 @@ function replaceInventoryTabsWithFormLink() {
     ', Errors: ' + errors
   );
 }
+function convertExcelToGoogleSheetsInVascularFolders() {
+  const VASCULAR_PARENT_FOLDER_ID = '185swROseZQ4U1nRhHtD-pFNIRx0DIz19';
+  const DRY_RUN = true;
+
+  let foldersWalked = 0;
+  let converted = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  const parentFolder = DriveApp.getFolderById(VASCULAR_PARENT_FOLDER_ID);
+  const employeeFolders = parentFolder.getFolders();
+
+  while (employeeFolders.hasNext()) {
+    const employeeFolder = employeeFolders.next();
+    const employeeName = employeeFolder.getName();
+
+    if (employeeName.toLowerCase().includes('archive')) continue;
+
+    foldersWalked++;
+
+    const files = employeeFolder.getFiles();
+
+    while (files.hasNext()) {
+      const file = files.next();
+      const fileName = file.getName();
+
+      if (!fileName.toLowerCase().endsWith('.xlsx')) continue;
+
+      const newName = fileName.replace(/\.xlsx$/i, '');
+
+      try {
+        // Skip if a Google Sheet with the target name already exists in the folder
+        const existing = employeeFolder.getFilesByName(newName);
+        if (existing.hasNext()) {
+          Logger.log('SKIPPED (already converted): ' + employeeName + ' / ' + fileName);
+          skipped++;
+          continue;
+        }
+
+        if (DRY_RUN) {
+          Logger.log('DRY RUN - WOULD CONVERT + TRASH: ' + employeeName + ' / ' + fileName + ' -> ' + newName);
+          converted++;
+          continue;
+        }
+
+        const convertedFile = Drive.Files.copy(
+          { title: newName, mimeType: MimeType.GOOGLE_SHEETS },
+          file.getId()
+        );
+
+        const newGoogleSheet = DriveApp.getFileById(convertedFile.id);
+        employeeFolder.addFile(newGoogleSheet);
+
+        file.setTrashed(true);
+
+        Logger.log('CONVERTED + TRASHED: ' + employeeName + ' / ' + fileName + ' -> ' + newName);
+        converted++;
+      } catch (err) {
+        Logger.log('ERROR converting ' + employeeName + ' / ' + fileName + ': ' + err);
+        errors++;
+      }
+    }
+  }
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
+    'Folders walked: ' + foldersWalked +
+    ', Converted' + (DRY_RUN ? ' (would)' : '') + ': ' + converted +
+    ', Skipped: ' + skipped +
+    ', Errors: ' + errors
+  );
+}
+function trashAllSheetsInVascularFolders() {
+  const VASCULAR_PARENT_FOLDER_ID = '185swROseZQ4U1nRhHtD-pFNIRx0DIz19';
+  const DRY_RUN = true;
+
+  let foldersWalked = 0;
+  let trashed = 0;
+  let errors = 0;
+
+  const parentFolder = DriveApp.getFolderById(VASCULAR_PARENT_FOLDER_ID);
+  const employeeFolders = parentFolder.getFolders();
+
+  while (employeeFolders.hasNext()) {
+    const employeeFolder = employeeFolders.next();
+    const employeeName = employeeFolder.getName();
+
+    if (employeeName.toLowerCase().includes('archive')) continue;
+
+    foldersWalked++;
+
+    const files = employeeFolder.getFiles();
+
+    while (files.hasNext()) {
+      const file = files.next();
+      const fileName = file.getName();
+      const mimeType = file.getMimeType();
+
+      const isSheet =
+        mimeType === MimeType.GOOGLE_SHEETS ||
+        mimeType === MimeType.MICROSOFT_EXCEL ||
+        fileName.toLowerCase().endsWith('.xlsx');
+
+      if (!isSheet) continue;
+
+      try {
+        if (DRY_RUN) {
+          Logger.log('DRY RUN - WOULD TRASH: ' + employeeName + ' / ' + fileName);
+        } else {
+          file.setTrashed(true);
+          Logger.log('TRASHED: ' + employeeName + ' / ' + fileName);
+        }
+        trashed++;
+      } catch (err) {
+        Logger.log('ERROR trashing ' + employeeName + ' / ' + fileName + ': ' + err);
+        errors++;
+      }
+    }
+  }
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
+    'Folders walked: ' + foldersWalked +
+    ', Sheets ' + (DRY_RUN ? 'that would be trashed' : 'trashed') + ': ' + trashed +
+    ', Errors: ' + errors
+  );
+}
