@@ -3504,39 +3504,34 @@ function trashNewTimecardsAndArchiveProcessed() {
         while (files.hasNext()) {
           const f = files.next();
           const fn = f.getName();
+          const fnLower = fn.toLowerCase();
           fileCount++;
 
-          const isTimecardMatch =
-            fn.includes('Timecard') &&
-            fn.includes(NEW_TIMECARD_DATE_STRING) &&
-            !fn.includes('Processed') &&
-            !fn.includes('Summary') &&
-            !fn.includes('ZZ_ARCHIVE_PAYROLL');
-
-          let archiveKind = null;
-          if (fn.includes(PROCESSED_DATE_STRING)) {
-            if (fn.includes('Processed')) {
-              archiveKind = 'Processed';
-            } else if (fn.includes('Reviewed')) {
-              archiveKind = 'Reviewed';
-            }
+          // Skip the file entirely: summary / archive-payroll artifacts
+          if (fnLower.includes('summary') || fnLower.includes('zz_archive_payroll')) {
+            Logger.log('    [' + sl.name + '] file-skip (summary/zz_archive_payroll): "' + fn + '"');
+            continue;
           }
 
-          if (isTimecardMatch) {
+          // Operation A — timecard for the new pay date
+          if (fnLower.includes('timecard') && fnLower.includes(NEW_TIMECARD_DATE_STRING.toLowerCase())) {
             Logger.log('    [' + sl.name + '] FILE-MATCH (timecard): "' + fn + '"');
             filesToTrash.push(f);
             continue;
           }
-          if (archiveKind === 'Processed') {
+
+          // Operation B — any Processed or Reviewed file (NO date filter)
+          if (fnLower.includes('processed')) {
             Logger.log('    [' + sl.name + '] FILE-MATCH (processed): "' + fn + '"');
             filesToArchive.push({ file: f, kind: 'Processed' });
             continue;
           }
-          if (archiveKind === 'Reviewed') {
+          if (fnLower.includes('reviewed')) {
             Logger.log('    [' + sl.name + '] FILE-MATCH (reviewed): "' + fn + '"');
             filesToArchive.push({ file: f, kind: 'Reviewed' });
             continue;
           }
+
           Logger.log('    [' + sl.name + '] file-no-match: "' + fn + '"');
         }
 
