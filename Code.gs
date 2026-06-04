@@ -3489,3 +3489,141 @@ function deleteCurrentTimecardSpreadsheets() {
     ', Errors: ' + errors
   );
 }
+function trashNewTimecardsAndArchiveProcessed() {
+  const NEW_TIMECARD_DATE_STRING = '06-19-2026';
+  const PROCESSED_DATE_STRING = '06-05-2026';
+  const VASCULAR_PROCESSED_ARCHIVE_DEST = '1bx2RrBsgsFAWuzPXWHgJRPnc-xt0Erp3';
+  const INFUSION_PROCESSED_ARCHIVE_DEST = '1xPk3LUvwV3xto6HpIW97HlJQRlxrjzn6';
+  const DRY_RUN = true;
+
+  const SERVICE_LINES = [
+    {
+      name: 'Infusion',
+      parentIds: [
+        '1abALtYC_Bcdnl-J06wtOxyJQI6XFdpQs',
+        '1qF4Nv_MLLOEbd4i8nb6PF_2TsnryH0o2',
+        '1B4ZbEOPkQ8GW-RETHpWLcQDob137SRhG',
+        '1Y3kbrNn_v2E8oyJQYCiH0Swj8m2bmwna'
+      ],
+      processedDestId: INFUSION_PROCESSED_ARCHIVE_DEST
+    },
+    {
+      name: 'Vascular',
+      parentIds: ['185swROseZQ4U1nRhHtD-pFNIRx0DIz19'],
+      processedDestId: VASCULAR_PROCESSED_ARCHIVE_DEST
+    }
+  ];
+
+  let foldersWalked = 0;
+  let timecardsTrashed = 0;
+  let processedArchived = 0;
+  let errors = 0;
+
+  SERVICE_LINES.forEach(function(sl) {
+    let destFolder = null;
+    let destFolderName = '(unresolved)';
+    try {
+      destFolder = DriveApp.getFolderById(sl.processedDestId);
+      destFolderName = destFolder.getName();
+    } catch (err) {
+      Logger.log('ERROR opening ' + sl.name + ' Processed archive destination ' + sl.processedDestId + ': ' + err);
+      errors++;
+      // Continue: Operation A still works; Operation B will skip and log
+    }
+
+    sl.parentIds.forEach(function(parentId) {
+      let parentFolder;
+      try {
+        parentFolder = DriveApp.getFolderById(parentId);
+      } catch (err) {
+        Logger.log('ERROR opening parent folder ' + parentId + ' [' + sl.name + ']: ' + err);
+        errors++;
+        return;
+      }
+
+      const employeeFolders = parentFolder.getFolders();
+
+      while (employeeFolders.hasNext()) {
+        const employeeFolder = employeeFolders.next();
+        const employeeName = employeeFolder.getName();
+
+        if (employeeName.toLowerCase().includes('archive')) continue;
+
+        foldersWalked++;
+
+        // Snapshot file matches first so trashing/moving doesn't disturb the iterator
+        const filesToTrash = [];
+        const filesToArchive = [];
+
+        const files = employeeFolder.getFiles();
+        while (files.hasNext()) {
+          const f = files.next();
+          const fn = f.getName();
+
+          if (
+            fn.includes('Timecard') &&
+            fn.includes(NEW_TIMECARD_DATE_STRING) &&
+            !fn.includes('Processed') &&
+            !fn.includes('Summary') &&
+            !fn.includes('ZZ_ARCHIVE_PAYROLL')
+          ) {
+            filesToTrash.push(f);
+            continue;
+          }
+
+          if (fn.includes('Processed') && fn.includes(PROCESSED_DATE_STRING)) {
+            filesToArchive.push(f);
+          }
+        }
+
+        // Operation A — trash the new timecards
+        filesToTrash.forEach(function(file) {
+          const fn = file.getName();
+          try {
+            if (DRY_RUN) {
+              Logger.log('DRY RUN - TRASHED-TIMECARD: ' + employeeName + ' | ' + fn);
+            } else {
+              file.setTrashed(true);
+              Logger.log('TRASHED-TIMECARD: ' + employeeName + ' | ' + fn);
+            }
+            timecardsTrashed++;
+          } catch (err) {
+            Logger.log('ERROR trashing ' + employeeName + ' | ' + fn + ': ' + err);
+            errors++;
+          }
+        });
+
+        // Operation B — archive Processed files to the service-line destination
+        filesToArchive.forEach(function(file) {
+          const fn = file.getName();
+          if (!destFolder) {
+            Logger.log('SKIPPED-PROCESSED (no destination): ' + employeeName + ' | ' + fn);
+            errors++;
+            return;
+          }
+          try {
+            if (DRY_RUN) {
+              Logger.log('DRY RUN - ARCHIVED-PROCESSED: ' + employeeName + ' | ' + fn + ' | -> ' + destFolderName);
+            } else {
+              destFolder.addFile(file);
+              employeeFolder.removeFile(file);
+              Logger.log('ARCHIVED-PROCESSED: ' + employeeName + ' | ' + fn + ' | -> ' + destFolderName);
+            }
+            processedArchived++;
+          } catch (err) {
+            Logger.log('ERROR archiving ' + employeeName + ' | ' + fn + ': ' + err);
+            errors++;
+          }
+        });
+      }
+    });
+  });
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
+    'Folders walked: ' + foldersWalked +
+    ', Timecards ' + (DRY_RUN ? 'that would be trashed' : 'trashed') + ': ' + timecardsTrashed +
+    ', Processed files ' + (DRY_RUN ? 'that would be archived' : 'archived') + ': ' + processedArchived +
+    ', Errors: ' + errors
+  );
+}
