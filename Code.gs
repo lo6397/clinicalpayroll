@@ -3449,35 +3449,50 @@ function trashNewTimecardsAndArchiveProcessed() {
   let errors = 0;
 
   SERVICE_LINES.forEach(function(sl) {
+    Logger.log('======== SERVICE LINE START [' + sl.name + '] ========');
+    Logger.log('  [' + sl.name + '] currentParentIds: ' + JSON.stringify(sl.currentParentIds));
+    Logger.log('  [' + sl.name + '] processedDestId: ' + sl.processedDestId);
+
     let destFolder = null;
     let destFolderName = '(unresolved)';
     try {
       destFolder = DriveApp.getFolderById(sl.processedDestId);
       destFolderName = destFolder.getName();
+      Logger.log('  [' + sl.name + '] DEST OPEN OK: "' + destFolderName + '" (' + sl.processedDestId + ')');
     } catch (err) {
-      Logger.log('ERROR opening ' + sl.name + ' Processed archive destination ' + sl.processedDestId + ': ' + err);
+      Logger.log('  [' + sl.name + '] ERROR opening Processed archive destination ' + sl.processedDestId + ': ' + err);
       errors++;
       // Continue: Operation A still works; Operation B will skip and log
     }
 
+    Logger.log('  [' + sl.name + '] iterating ' + sl.currentParentIds.length + ' parent folder ID(s)');
+
     sl.currentParentIds.forEach(function(parentId) {
+      Logger.log('  [' + sl.name + '] -> opening parent folder: ' + parentId);
       let parentFolder;
       try {
         parentFolder = DriveApp.getFolderById(parentId);
+        Logger.log('  [' + sl.name + '] PARENT OPEN OK: "' + parentFolder.getName() + '" (' + parentId + ')');
       } catch (err) {
-        Logger.log('ERROR opening parent folder ' + parentId + ' [' + sl.name + ']: ' + err);
+        Logger.log('  [' + sl.name + '] ERROR opening parent folder ' + parentId + ': ' + err);
         errors++;
         return;
       }
 
       const employeeFolders = parentFolder.getFolders();
+      let employeeFolderCount = 0;
 
       while (employeeFolders.hasNext()) {
         const employeeFolder = employeeFolders.next();
         const employeeName = employeeFolder.getName();
+        employeeFolderCount++;
 
-        if (employeeName.toLowerCase().includes('archive')) continue;
+        if (employeeName.toLowerCase().includes('archive')) {
+          Logger.log('  [' + sl.name + '] SKIP-EMPLOYEE (archive in name): "' + employeeName + '"');
+          continue;
+        }
 
+        Logger.log('  [' + sl.name + '] EMPLOYEE: "' + employeeName + '"');
         foldersWalked++;
 
         // Snapshot file matches first so trashing/moving doesn't disturb the iterator
@@ -3485,33 +3500,47 @@ function trashNewTimecardsAndArchiveProcessed() {
         const filesToArchive = [];
 
         const files = employeeFolder.getFiles();
+        let fileCount = 0;
         while (files.hasNext()) {
           const f = files.next();
           const fn = f.getName();
+          fileCount++;
 
-          if (
+          const isTimecardMatch =
             fn.includes('Timecard') &&
             fn.includes(NEW_TIMECARD_DATE_STRING) &&
             !fn.includes('Processed') &&
             !fn.includes('Summary') &&
-            !fn.includes('ZZ_ARCHIVE_PAYROLL')
-          ) {
+            !fn.includes('ZZ_ARCHIVE_PAYROLL');
+
+          let archiveKind = null;
+          if (fn.includes(PROCESSED_DATE_STRING)) {
+            if (fn.includes('Processed')) {
+              archiveKind = 'Processed';
+            } else if (fn.includes('Reviewed')) {
+              archiveKind = 'Reviewed';
+            }
+          }
+
+          if (isTimecardMatch) {
+            Logger.log('    [' + sl.name + '] FILE-MATCH (timecard): "' + fn + '"');
             filesToTrash.push(f);
             continue;
           }
-
-          if (fn.includes(PROCESSED_DATE_STRING)) {
-            let kind = null;
-            if (fn.includes('Processed')) {
-              kind = 'Processed';
-            } else if (fn.includes('Reviewed')) {
-              kind = 'Reviewed';
-            }
-            if (kind) {
-              filesToArchive.push({ file: f, kind: kind });
-            }
+          if (archiveKind === 'Processed') {
+            Logger.log('    [' + sl.name + '] FILE-MATCH (processed): "' + fn + '"');
+            filesToArchive.push({ file: f, kind: 'Processed' });
+            continue;
           }
+          if (archiveKind === 'Reviewed') {
+            Logger.log('    [' + sl.name + '] FILE-MATCH (reviewed): "' + fn + '"');
+            filesToArchive.push({ file: f, kind: 'Reviewed' });
+            continue;
+          }
+          Logger.log('    [' + sl.name + '] file-no-match: "' + fn + '"');
         }
+
+        Logger.log('  [' + sl.name + '] "' + employeeName + '" — files scanned: ' + fileCount + ', timecard matches: ' + filesToTrash.length + ', archive matches: ' + filesToArchive.length);
 
         // Operation A — trash the new timecards
         filesToTrash.forEach(function(file) {
@@ -3560,7 +3589,11 @@ function trashNewTimecardsAndArchiveProcessed() {
           }
         });
       }
+
+      Logger.log('  [' + sl.name + '] parent "' + parentFolder.getName() + '" produced ' + employeeFolderCount + ' direct subfolder(s)');
     });
+
+    Logger.log('======== SERVICE LINE END   [' + sl.name + '] ========');
   });
 
   Logger.log(
