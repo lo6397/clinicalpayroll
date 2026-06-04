@@ -3430,14 +3430,14 @@ function trashNewTimecardsAndArchiveProcessed() {
   const SERVICE_LINES = [
     {
       name: 'Infusion',
-      parentIds: [
+      currentParentIds: [
         '1wvKnzIIuKJg9o_JDFXRh9kBEoP-IhWPN'
       ],
       processedDestId: INFUSION_PROCESSED_ARCHIVE_DEST
     },
     {
       name: 'Vascular',
-      parentIds: ['185swROseZQ4U1nRhHtD-pFNIRx0DIz19'],
+      currentParentIds: ['185swROseZQ4U1nRhHtD-pFNIRx0DIz19'],
       processedDestId: VASCULAR_PROCESSED_ARCHIVE_DEST
     }
   ];
@@ -3460,7 +3460,7 @@ function trashNewTimecardsAndArchiveProcessed() {
       // Continue: Operation A still works; Operation B will skip and log
     }
 
-    sl.parentIds.forEach(function(parentId) {
+    sl.currentParentIds.forEach(function(parentId) {
       let parentFolder;
       try {
         parentFolder = DriveApp.getFolderById(parentId);
