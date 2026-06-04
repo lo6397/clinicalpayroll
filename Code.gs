@@ -3517,6 +3517,7 @@ function trashNewTimecardsAndArchiveProcessed() {
   let foldersWalked = 0;
   let timecardsTrashed = 0;
   let processedArchived = 0;
+  let reviewedArchived = 0;
   let errors = 0;
 
   SERVICE_LINES.forEach(function(sl) {
@@ -3571,8 +3572,16 @@ function trashNewTimecardsAndArchiveProcessed() {
             continue;
           }
 
-          if (fn.includes('Processed') && fn.includes(PROCESSED_DATE_STRING)) {
-            filesToArchive.push(f);
+          if (fn.includes(PROCESSED_DATE_STRING)) {
+            let kind = null;
+            if (fn.includes('Processed')) {
+              kind = 'Processed';
+            } else if (fn.includes('Reviewed')) {
+              kind = 'Reviewed';
+            }
+            if (kind) {
+              filesToArchive.push({ file: f, kind: kind });
+            }
           }
         }
 
@@ -3593,23 +3602,30 @@ function trashNewTimecardsAndArchiveProcessed() {
           }
         });
 
-        // Operation B — archive Processed files to the service-line destination
-        filesToArchive.forEach(function(file) {
+        // Operation B — archive Processed and Reviewed files to the service-line destination
+        filesToArchive.forEach(function(entry) {
+          const file = entry.file;
+          const kind = entry.kind;
           const fn = file.getName();
+          const label = 'ARCHIVED-' + kind.toUpperCase();
           if (!destFolder) {
-            Logger.log('SKIPPED-PROCESSED (no destination): ' + employeeName + ' | ' + fn);
+            Logger.log('SKIPPED-' + kind.toUpperCase() + ' (no destination): ' + employeeName + ' | ' + fn);
             errors++;
             return;
           }
           try {
             if (DRY_RUN) {
-              Logger.log('DRY RUN - ARCHIVED-PROCESSED: ' + employeeName + ' | ' + fn + ' | -> ' + destFolderName);
+              Logger.log('DRY RUN - ' + label + ': ' + employeeName + ' | ' + fn + ' | -> ' + destFolderName);
             } else {
               destFolder.addFile(file);
               employeeFolder.removeFile(file);
-              Logger.log('ARCHIVED-PROCESSED: ' + employeeName + ' | ' + fn + ' | -> ' + destFolderName);
+              Logger.log(label + ': ' + employeeName + ' | ' + fn + ' | -> ' + destFolderName);
             }
-            processedArchived++;
+            if (kind === 'Processed') {
+              processedArchived++;
+            } else {
+              reviewedArchived++;
+            }
           } catch (err) {
             Logger.log('ERROR archiving ' + employeeName + ' | ' + fn + ': ' + err);
             errors++;
@@ -3623,7 +3639,8 @@ function trashNewTimecardsAndArchiveProcessed() {
     (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
     'Folders walked: ' + foldersWalked +
     ', Timecards ' + (DRY_RUN ? 'that would be trashed' : 'trashed') + ': ' + timecardsTrashed +
-    ', Processed files ' + (DRY_RUN ? 'that would be archived' : 'archived') + ': ' + processedArchived +
+    ', Processed archived: ' + processedArchived +
+    ', Reviewed archived: ' + reviewedArchived +
     ', Errors: ' + errors
   );
 }
