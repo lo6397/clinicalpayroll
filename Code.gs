@@ -3600,3 +3600,73 @@ function trashNewTimecardsAndArchiveProcessed() {
     ', Errors: ' + errors
   );
 }
+function addPerformanceDocumentationFolders() {
+  const PARENT_FOLDER_ID = '1ONMCv9H8W7MEfaMvgDJXtAsGxq-IwiZO';
+  const EMP_FOLDER_SUFFIX = '_EMP_File';
+  const DRY_RUN = true;
+
+  const parentFolder = DriveApp.getFolderById(PARENT_FOLDER_ID);
+  const parentName = parentFolder.getName();
+
+  const firstWord = parentName.split(' ')[0] || '';
+  const prefix = firstWord.replace(/[:.,]+$/, '');
+
+  Logger.log('Parent folder: "' + parentName + '" — using prefix: "' + prefix + '"');
+
+  const newFolderName = prefix + '_Performance_Documentation';
+  const empSuffixLower = EMP_FOLDER_SUFFIX.toLowerCase();
+
+  let walked = 0;
+  let created = 0;
+  let skippedExists = 0;
+  let skippedNotEmp = 0;
+  let errors = 0;
+
+  const subfolders = parentFolder.getFolders();
+
+  while (subfolders.hasNext()) {
+    const employeeFolder = subfolders.next();
+    const employeeName = employeeFolder.getName();
+    walked++;
+
+    try {
+      if (employeeName.toLowerCase().includes('archive')) {
+        // Silent archive skip is fine; included via the standing convention
+        continue;
+      }
+
+      if (!employeeName.toLowerCase().includes(empSuffixLower)) {
+        Logger.log('SKIP-NOT-EMP: ' + employeeName);
+        skippedNotEmp++;
+        continue;
+      }
+
+      const existing = employeeFolder.getFoldersByName(newFolderName);
+      if (existing.hasNext()) {
+        Logger.log('SKIP-EXISTS: ' + employeeName);
+        skippedExists++;
+        continue;
+      }
+
+      if (DRY_RUN) {
+        Logger.log('DRY RUN - CREATED: ' + employeeName + ' -> ' + newFolderName);
+      } else {
+        employeeFolder.createFolder(newFolderName);
+        Logger.log('CREATED: ' + employeeName + ' -> ' + newFolderName);
+      }
+      created++;
+    } catch (err) {
+      Logger.log('ERROR processing ' + employeeName + ': ' + err);
+      errors++;
+    }
+  }
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
+    'Subfolders walked: ' + walked +
+    ', Folders ' + (DRY_RUN ? 'that would be created' : 'created') + ': ' + created +
+    ', Skipped (already exists): ' + skippedExists +
+    ', Skipped (not _EMP_File): ' + skippedNotEmp +
+    ', Errors: ' + errors
+  );
+}
