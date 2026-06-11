@@ -3666,3 +3666,81 @@ function addPerformanceDocumentationFolders() {
     ', Errors: ' + errors
   );
 }
+function deleteWrongPerformanceDocumentationFolders() {
+  const PARENT_FOLDER_ID = '1ONMCv9H8W7MEfaMvgDJXtAsGxq-IwiZO';
+  const WRONG_FOLDER_NAME = 'PV_Vascular_Performance_Documentation';
+  const DRY_RUN = true;
+
+  const parentFolder = DriveApp.getFolderById(PARENT_FOLDER_ID);
+
+  let walked = 0;
+  let trashed = 0;
+  let skippedNotEmpty = 0;
+  let notFound = 0;
+  let errors = 0;
+
+  const subfolders = parentFolder.getFolders();
+
+  while (subfolders.hasNext()) {
+    const employeeFolder = subfolders.next();
+    const employeeName = employeeFolder.getName();
+    walked++;
+
+    try {
+      if (employeeName.toLowerCase().includes('archive')) continue;
+
+      const matches = employeeFolder.getFoldersByName(WRONG_FOLDER_NAME);
+      if (!matches.hasNext()) {
+        Logger.log('NOT-FOUND: ' + employeeName);
+        notFound++;
+        continue;
+      }
+
+      const wrongFolder = matches.next();
+
+      // Count direct files and subfolders inside the wrong folder
+      let fileCount = 0;
+      const filesInWrong = wrongFolder.getFiles();
+      while (filesInWrong.hasNext()) {
+        filesInWrong.next();
+        fileCount++;
+      }
+
+      let subfolderCount = 0;
+      const subfoldersInWrong = wrongFolder.getFolders();
+      while (subfoldersInWrong.hasNext()) {
+        subfoldersInWrong.next();
+        subfolderCount++;
+      }
+
+      if (fileCount > 0 || subfolderCount > 0) {
+        Logger.log(
+          'SKIP-NOT-EMPTY: ' + employeeName + ' -> ' + WRONG_FOLDER_NAME +
+          ' (contains ' + fileCount + ' files, ' + subfolderCount + ' subfolders)'
+        );
+        skippedNotEmpty++;
+        continue;
+      }
+
+      if (DRY_RUN) {
+        Logger.log('DRY RUN - TRASHED: ' + employeeName + ' -> ' + WRONG_FOLDER_NAME);
+      } else {
+        wrongFolder.setTrashed(true);
+        Logger.log('TRASHED: ' + employeeName + ' -> ' + WRONG_FOLDER_NAME);
+      }
+      trashed++;
+    } catch (err) {
+      Logger.log('ERROR processing ' + employeeName + ': ' + err);
+      errors++;
+    }
+  }
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
+    'Subfolders walked: ' + walked +
+    ', Wrong folders ' + (DRY_RUN ? 'that would be trashed' : 'trashed') + ': ' + trashed +
+    ', Skipped (not empty): ' + skippedNotEmpty +
+    ', Not found: ' + notFound +
+    ', Errors: ' + errors
+  );
+}
