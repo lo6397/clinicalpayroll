@@ -3606,14 +3606,7 @@ function addPerformanceDocumentationFolders() {
   const DRY_RUN = true;
 
   const parentFolder = DriveApp.getFolderById(PARENT_FOLDER_ID);
-  const parentName = parentFolder.getName();
 
-  const firstWord = parentName.split(' ')[0] || '';
-  const prefix = firstWord.replace(/[:.,]+$/, '');
-
-  Logger.log('Parent folder: "' + parentName + '" — using prefix: "' + prefix + '"');
-
-  const newFolderName = prefix + '_Performance_Documentation';
   const empSuffixLower = EMP_FOLDER_SUFFIX.toLowerCase();
 
   let walked = 0;
@@ -3640,6 +3633,9 @@ function addPerformanceDocumentationFolders() {
         skippedNotEmp++;
         continue;
       }
+
+      const prefix = employeeName.split(',')[0].trim();
+      const newFolderName = prefix + '_Performance_Documentation';
 
       const existing = employeeFolder.getFoldersByName(newFolderName);
       if (existing.hasNext()) {
