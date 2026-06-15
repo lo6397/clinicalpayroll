@@ -3744,3 +3744,108 @@ function deleteWrongPerformanceDocumentationFolders() {
     ', Errors: ' + errors
   );
 }
+function addServiceLineDocsToEmployeeFolders() {
+  const INFUSION_TEMPLATE_DOC_ID = '1PRG951DyVkIrVwMFsn3qAOem0mvSOfVOn2laA7AnNd0';
+  const VASCULAR_TEMPLATE_DOC_ID = '1tqFT7NCbbcCILuAtAcYUnREmOQ41yXrdVfVLgArZttc';
+  const INFUSION_PARENT_FOLDER_ID = '1miO62yCilTD7CEiX1Y42beVEPXEdaVtM';
+  const VASCULAR_PARENT_FOLDER_ID = '185swROseZQ4U1nRhHtD-pFNIRx0DIz19';
+  const DRY_RUN = true;
+
+  let infusionTemplate;
+  let vascularTemplate;
+  try {
+    infusionTemplate = DriveApp.getFileById(INFUSION_TEMPLATE_DOC_ID);
+  } catch (err) {
+    Logger.log('ABORT: could not open Infusion template ' + INFUSION_TEMPLATE_DOC_ID + ': ' + err);
+    return;
+  }
+  try {
+    vascularTemplate = DriveApp.getFileById(VASCULAR_TEMPLATE_DOC_ID);
+  } catch (err) {
+    Logger.log('ABORT: could not open Vascular template ' + VASCULAR_TEMPLATE_DOC_ID + ': ' + err);
+    return;
+  }
+
+  const infusionTemplateName = infusionTemplate.getName();
+  const vascularTemplateName = vascularTemplate.getName();
+
+  Logger.log('Infusion template: "' + infusionTemplateName + '" (id ' + INFUSION_TEMPLATE_DOC_ID + ')');
+  Logger.log('Vascular template: "' + vascularTemplateName + '" (id ' + VASCULAR_TEMPLATE_DOC_ID + ')');
+
+  const SERVICE_LINES = [
+    {
+      name: 'Infusion',
+      parentFolderId: INFUSION_PARENT_FOLDER_ID,
+      templateFile: infusionTemplate,
+      templateName: infusionTemplateName
+    },
+    {
+      name: 'Vascular',
+      parentFolderId: VASCULAR_PARENT_FOLDER_ID,
+      templateFile: vascularTemplate,
+      templateName: vascularTemplateName
+    }
+  ];
+
+  const counts = {
+    Infusion: { walked: 0, copied: 0, skippedExists: 0 },
+    Vascular: { walked: 0, copied: 0, skippedExists: 0 }
+  };
+  let errors = 0;
+
+  SERVICE_LINES.forEach(function(sl) {
+    let parentFolder;
+    try {
+      parentFolder = DriveApp.getFolderById(sl.parentFolderId);
+    } catch (err) {
+      Logger.log('ERROR opening ' + sl.name + ' parent folder ' + sl.parentFolderId + ': ' + err);
+      errors++;
+      return;
+    }
+
+    const employeeFolders = parentFolder.getFolders();
+
+    while (employeeFolders.hasNext()) {
+      const employeeFolder = employeeFolders.next();
+      const employeeName = employeeFolder.getName();
+
+      if (employeeName.toLowerCase().includes('archive')) {
+        Logger.log('SKIP-ARCHIVE: ' + employeeName);
+        continue;
+      }
+
+      counts[sl.name].walked++;
+
+      try {
+        const existing = employeeFolder.getFilesByName(sl.templateName);
+        if (existing.hasNext()) {
+          Logger.log('SKIP-EXISTS: ' + employeeName + ' -> ' + sl.templateName);
+          counts[sl.name].skippedExists++;
+          continue;
+        }
+
+        if (DRY_RUN) {
+          Logger.log('DRY RUN - COPIED: ' + employeeName + ' -> ' + sl.templateName);
+        } else {
+          sl.templateFile.makeCopy(sl.templateName, employeeFolder);
+          Logger.log('COPIED: ' + employeeName + ' -> ' + sl.templateName);
+        }
+        counts[sl.name].copied++;
+      } catch (err) {
+        Logger.log('ERROR processing ' + employeeName + ' [' + sl.name + ']: ' + err);
+        errors++;
+      }
+    }
+  });
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
+    'Infusion folders walked: ' + counts.Infusion.walked +
+    ', Infusion docs ' + (DRY_RUN ? 'that would be copied' : 'copied') + ': ' + counts.Infusion.copied +
+    ', Infusion skipped (exists): ' + counts.Infusion.skippedExists +
+    ', Vascular folders walked: ' + counts.Vascular.walked +
+    ', Vascular docs ' + (DRY_RUN ? 'that would be copied' : 'copied') + ': ' + counts.Vascular.copied +
+    ', Vascular skipped (exists): ' + counts.Vascular.skippedExists +
+    ', Errors: ' + errors
+  );
+}
