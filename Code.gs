@@ -4062,3 +4062,125 @@ function shareBillyOnPerformanceDocumentationFolders() {
     ', Errors: ' + errors
   );
 }
+function shareJohnOnPICCPerformanceDocumentationFolders() {
+  const EMAIL_TO_ADD = 'john.tanchiatco@vellum.health';
+  const PARENT_FOLDER_IDS = [
+    '1SAn1EHF2z0eG7P8ELA2cwJOeVMC93vSe'    // PICC
+  ];
+  const PERFORMANCE_FOLDER_SUFFIX = '_Performance_Documentation';
+  const DRY_RUN = true;
+
+  // Guard: Advanced Drive Service must be enabled
+  if (typeof Drive === 'undefined') {
+    Logger.log('ABORT: Advanced Drive Service is not enabled in this Apps Script project.');
+    Logger.log('       Enable it in the editor: Services panel (left sidebar) → "+" → select "Drive API" → Add. Then re-run.');
+    Logger.log('DRY RUN complete. Parents walked: 0, Employee folders walked: 0, Perf folders shared: 0, Perf folders skipped (already shared): 0, Perf folders not found: 0, Errors: 1');
+    return;
+  }
+
+  const suffixLower = PERFORMANCE_FOLDER_SUFFIX.toLowerCase();
+
+  let parentsWalked = 0;
+  let employeesWalked = 0;
+  let perfShared = 0;
+  let perfSkippedAlreadyShared = 0;
+  let perfNotFound = 0;
+  let errors = 0;
+
+  PARENT_FOLDER_IDS.forEach(function(parentId) {
+    let parentFolder;
+    try {
+      parentFolder = DriveApp.getFolderById(parentId);
+    } catch (err) {
+      Logger.log('ERROR opening parent folder ' + parentId + ': ' + err);
+      errors++;
+      return;
+    }
+
+    parentsWalked++;
+    Logger.log('=== Parent: "' + parentFolder.getName() + '" (' + parentId + ') ===');
+
+    const employeeFolders = parentFolder.getFolders();
+
+    while (employeeFolders.hasNext()) {
+      const employeeFolder = employeeFolders.next();
+      const employeeName = employeeFolder.getName();
+
+      if (employeeName.toLowerCase().includes('archive')) continue;
+
+      employeesWalked++;
+
+      // Find subfolders ending with _Performance_Documentation (case-insensitive)
+      const perfFolders = [];
+      const inner = employeeFolder.getFolders();
+      while (inner.hasNext()) {
+        const sf = inner.next();
+        if (sf.getName().toLowerCase().endsWith(suffixLower)) {
+          perfFolders.push(sf);
+        }
+      }
+
+      if (perfFolders.length === 0) {
+        Logger.log('NOT-FOUND: ' + employeeName + ' (no ' + PERFORMANCE_FOLDER_SUFFIX + ' subfolder)');
+        perfNotFound++;
+        continue;
+      }
+
+      perfFolders.forEach(function(perfFolder) {
+        const perfName = perfFolder.getName();
+        try {
+          // Is John already owner or editor?
+          let alreadyShared = false;
+          try {
+            const owner = perfFolder.getOwner();
+            if (owner && owner.getEmail && owner.getEmail() === EMAIL_TO_ADD) {
+              alreadyShared = true;
+            }
+          } catch (err) {
+            // Shared drives can return no owner; ignore
+          }
+          if (!alreadyShared) {
+            const editors = perfFolder.getEditors();
+            for (let i = 0; i < editors.length; i++) {
+              if (editors[i].getEmail() === EMAIL_TO_ADD) {
+                alreadyShared = true;
+                break;
+              }
+            }
+          }
+
+          if (alreadyShared) {
+            Logger.log('SKIP-ALREADY-SHARED: ' + employeeName + ' -> ' + perfName);
+            perfSkippedAlreadyShared++;
+            return;
+          }
+
+          if (DRY_RUN) {
+            Logger.log('DRY RUN - SHARED: ' + employeeName + ' -> ' + perfName);
+          } else {
+            Drive.Permissions.insert(
+              { role: 'writer', type: 'user', value: EMAIL_TO_ADD },
+              perfFolder.getId(),
+              { sendNotificationEmails: false }
+            );
+            Logger.log('SHARED: ' + employeeName + ' -> ' + perfName);
+          }
+          perfShared++;
+        } catch (err) {
+          Logger.log('ERROR sharing ' + employeeName + ' -> ' + perfName + ': ' + err);
+          errors++;
+        }
+      });
+    }
+  });
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
+    'Parents walked: ' + parentsWalked +
+    ', Employee folders walked: ' + employeesWalked +
+    ', Perf folders ' + (DRY_RUN ? 'that would be shared' : 'shared') + ': ' + perfShared +
+    ', Perf folders skipped (already shared): ' + perfSkippedAlreadyShared +
+    ', Perf folders not found: ' + perfNotFound +
+    ', Errors: ' + errors
+  );
+}
