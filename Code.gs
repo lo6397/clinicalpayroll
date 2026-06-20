@@ -3849,3 +3849,94 @@ function addServiceLineDocsToEmployeeFolders() {
     ', Errors: ' + errors
   );
 }
+function autoCreateEmployeeSubfolders() {
+  const DEPARTMENT_PARENT_FOLDER_IDS = [
+    '1SAn1EHF2z0eG7P8ELA2cwJOeVMC93vSe',   // PICC
+    '1nKdwbkXiy6gd5QE10EwfJFPiytCg2xgF',   // PV_Infusion
+    '1ONMCv9H8W7MEfaMvgDJXtAsGxq-IwiZO',   // PV_Vascular
+    '18AIdXsIEI8GGILv0KiMNcSlnDtsWIz0P'    // NEVA
+  ];
+  const REQUIRED_SUBFOLDER_SUFFIXES = [
+    'Employment_Agreement',
+    'Resume',
+    'Licenses_and_Certifications',
+    'Vaccine_Records',
+    'Clinical_Competencies',
+    'Employee_Documentation',
+    'Performance_Documentation'
+  ];
+  const DRY_RUN = true;
+
+  let parentsWalked = 0;
+  let employeesWalked = 0;
+  let subfoldersCreated = 0;
+  let employeesSkippedNoComma = 0;
+  let errors = 0;
+
+  DEPARTMENT_PARENT_FOLDER_IDS.forEach(function(parentId) {
+    let parentFolder;
+    try {
+      parentFolder = DriveApp.getFolderById(parentId);
+    } catch (err) {
+      Logger.log('ERROR opening department parent ' + parentId + ': ' + err);
+      errors++;
+      return;
+    }
+
+    parentsWalked++;
+    Logger.log('=== Department parent: "' + parentFolder.getName() + '" (' + parentId + ') ===');
+
+    const employeeFolders = parentFolder.getFolders();
+
+    while (employeeFolders.hasNext()) {
+      const employeeFolder = employeeFolders.next();
+      const employeeName = employeeFolder.getName();
+
+      if (employeeName.toLowerCase().includes('archive')) continue;
+
+      try {
+        if (employeeName.indexOf(',') === -1) {
+          Logger.log('SKIP-NO-COMMA: ' + employeeName);
+          employeesSkippedNoComma++;
+          continue;
+        }
+
+        const lastname = employeeName.split(',')[0].trim();
+
+        // Snapshot existing subfolders' names ONCE
+        const existingNames = {};
+        const existingIter = employeeFolder.getFolders();
+        while (existingIter.hasNext()) {
+          existingNames[existingIter.next().getName()] = true;
+        }
+
+        employeesWalked++;
+
+        REQUIRED_SUBFOLDER_SUFFIXES.forEach(function(suffix) {
+          const expectedName = lastname + '_' + suffix;
+          if (existingNames[expectedName]) return;
+
+          if (DRY_RUN) {
+            Logger.log('DRY RUN - CREATED: ' + employeeName + ' -> ' + expectedName);
+          } else {
+            employeeFolder.createFolder(expectedName);
+            Logger.log('CREATED: ' + employeeName + ' -> ' + expectedName);
+          }
+          subfoldersCreated++;
+        });
+      } catch (err) {
+        Logger.log('ERROR processing ' + employeeName + ': ' + err);
+        errors++;
+      }
+    }
+  });
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
+    'Department parents walked: ' + parentsWalked +
+    ', Employee folders walked: ' + employeesWalked +
+    ', Subfolders ' + (DRY_RUN ? 'that would be created' : 'created') + ': ' + subfoldersCreated +
+    ', Employees skipped (no comma): ' + employeesSkippedNoComma +
+    ', Errors: ' + errors
+  );
+}
