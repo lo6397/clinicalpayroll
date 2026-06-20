@@ -4182,3 +4182,203 @@ function shareJohnOnPICCPerformanceDocumentationFolders() {
     ', Errors: ' + errors
   );
 }
+function sharePVInfusionPerformanceFoldersFromSheet() {
+  const MANAGER_SHEET_ID = '1Z-fqtVCZq-KuxC8BK6TKx1RmC26Lk6n1PXFQ0V68weU';
+  const MANAGER_SHEET_TAB = 'Infusions';
+  const PV_INFUSION_PARENT_FOLDER_ID = '1nKdwbkXiy6gd5QE10EwfJFPiytCg2xgF';
+  const DRY_RUN = true;
+
+  // Guard: Advanced Drive Service must be enabled
+  if (typeof Drive === 'undefined') {
+    Logger.log('Drive Advanced Service is NOT enabled. Enable it via Services panel → add Drive API → click Add. Aborting.');
+    return;
+  }
+
+  function normalize(name) {
+    return String(name)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .trim();
+  }
+
+  function extractEmployeeName(folderName) {
+    const empIdx = folderName.indexOf('_EMP_File');
+    if (empIdx >= 0) return folderName.substring(0, empIdx);
+    const us = folderName.indexOf('_');
+    if (us >= 0) return folderName.substring(0, us);
+    return folderName;
+  }
+
+  // Step 1: Load manager mapping from the sheet
+  let ss;
+  let sheet;
+  try {
+    ss = SpreadsheetApp.openById(MANAGER_SHEET_ID);
+    sheet = ss.getSheetByName(MANAGER_SHEET_TAB);
+  } catch (err) {
+    Logger.log('ABORT: could not open manager sheet ' + MANAGER_SHEET_ID + ': ' + (err && err.message ? err.message : err));
+    return;
+  }
+  if (!sheet) {
+    Logger.log('ABORT: tab "' + MANAGER_SHEET_TAB + '" not found in spreadsheet ' + MANAGER_SHEET_ID);
+    return;
+  }
+
+  const lastRow = sheet.getLastRow();
+  const values = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, 3).getValues() : [];
+
+  let rowsLoaded = 0;
+  const map = {}; // normalizedName -> { originalRnName, emails: [], emailsLowerSet: {} }
+
+  values.forEach(function(row) {
+    const rn = String(row[0] == null ? '' : row[0]).trim();
+    const email = String(row[2] == null ? '' : row[2]).trim();
+    if (!rn || !email) return;
+    rowsLoaded++;
+
+    const key = normalize(rn);
+    if (!key) return;
+
+    if (!map[key]) {
+      map[key] = { originalRnName: rn, emails: [], emailsLowerSet: {} };
+    }
+    const emailLower = email.toLowerCase();
+    if (!map[key].emailsLowerSet[emailLower]) {
+      map[key].emailsLowerSet[emailLower] = true;
+      map[key].emails.push(email);
+    }
+  });
+
+  const uniqueEmployees = Object.keys(map).length;
+  Logger.log('Sheet rows loaded: ' + rowsLoaded + ', unique employees mapped: ' + uniqueEmployees);
+
+  // Step 2: Walk PV_Infusion employee folders
+  let parentFolder;
+  try {
+    parentFolder = DriveApp.getFolderById(PV_INFUSION_PARENT_FOLDER_ID);
+  } catch (err) {
+    Logger.log('ABORT: could not open PV_Infusion parent folder ' + PV_INFUSION_PARENT_FOLDER_ID + ': ' + (err && err.message ? err.message : err));
+    return;
+  }
+
+  const matchedKeys = {};
+
+  let employeesWalked = 0;
+  let sharesPerformed = 0;
+  let skippedAlreadyShared = 0;
+  let noMappingCount = 0;
+  let noPerfFolderCount = 0;
+  let errors = 0;
+
+  const employeeFolders = parentFolder.getFolders();
+
+  while (employeeFolders.hasNext()) {
+    const employeeFolder = employeeFolders.next();
+    const folderName = employeeFolder.getName();
+
+    if (folderName.toLowerCase().includes('archive')) continue;
+
+    employeesWalked++;
+
+    const empName = extractEmployeeName(folderName);
+    const empKey = normalize(empName);
+
+    const mapping = map[empKey];
+    if (!mapping) {
+      Logger.log('NO-MAPPING: ' + folderName);
+      noMappingCount++;
+      continue;
+    }
+
+    matchedKeys[empKey] = true;
+
+    // Find _Performance_Documentation subfolder (case-insensitive)
+    let perfFolder = null;
+    const inner = employeeFolder.getFolders();
+    while (inner.hasNext()) {
+      const sf = inner.next();
+      if (sf.getName().toLowerCase().endsWith('_performance_documentation')) {
+        perfFolder = sf;
+        break;
+      }
+    }
+
+    if (!perfFolder) {
+      Logger.log('NO-PERF-FOLDER: ' + folderName);
+      noPerfFolderCount++;
+      continue;
+    }
+
+    const perfName = perfFolder.getName();
+
+    mapping.emails.forEach(function(email) {
+      try {
+        const emailLower = email.toLowerCase();
+
+        let alreadyShared = false;
+        try {
+          const owner = perfFolder.getOwner();
+          if (owner && owner.getEmail && owner.getEmail().toLowerCase() === emailLower) {
+            alreadyShared = true;
+          }
+        } catch (e) {
+          // Shared drives can return no owner; ignore
+        }
+        if (!alreadyShared) {
+          const editors = perfFolder.getEditors();
+          for (let i = 0; i < editors.length; i++) {
+            if (editors[i].getEmail().toLowerCase() === emailLower) {
+              alreadyShared = true;
+              break;
+            }
+          }
+        }
+
+        if (alreadyShared) {
+          Logger.log('SKIP-ALREADY-SHARED: ' + folderName + ' -> ' + perfName + ' | ' + email);
+          skippedAlreadyShared++;
+          return;
+        }
+
+        if (DRY_RUN) {
+          Logger.log('DRY RUN - SHARED: ' + folderName + ' -> ' + perfName + ' | ' + email);
+        } else {
+          Drive.Permissions.create(
+            { role: 'writer', type: 'user', emailAddress: email },
+            perfFolder.getId(),
+            { sendNotificationEmail: false }
+          );
+          Logger.log('SHARED: ' + folderName + ' -> ' + perfName + ' | ' + email);
+        }
+        sharesPerformed++;
+      } catch (err) {
+        Logger.log('ERROR sharing ' + folderName + ' -> ' + perfName + ' | ' + email + ': ' + (err && err.message ? err.message : err));
+        errors++;
+      }
+    });
+  }
+
+  // Step 3: Identify sheet entries with no Drive folder match
+  let noDriveFolderCount = 0;
+  Object.keys(map).forEach(function(k) {
+    if (!matchedKeys[k]) {
+      Logger.log('NO-DRIVE-FOLDER: ' + map[k].originalRnName + ' | managers: ' + map[k].emails.join(', '));
+      noDriveFolderCount++;
+    }
+  });
+
+  // Step 4: Final summary
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
+    'Sheet rows loaded: ' + rowsLoaded +
+    ', Employee folders walked: ' + employeesWalked +
+    ', Shares ' + (DRY_RUN ? 'that would be performed' : 'performed') + ': ' + sharesPerformed +
+    ', Skipped (already shared): ' + skippedAlreadyShared +
+    ', No mapping: ' + noMappingCount +
+    ', No perf folder: ' + noPerfFolderCount +
+    ', No Drive folder (sheet rows): ' + noDriveFolderCount +
+    ', Errors: ' + errors
+  );
+}
