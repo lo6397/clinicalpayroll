@@ -3943,7 +3943,6 @@ function autoCreateEmployeeSubfolders() {
 function shareBillyOnPerformanceDocumentationFolders() {
   const EMAIL_TO_ADD = 'billy.lessa@vellum.health';
   const PARENT_FOLDER_IDS = [
-    '1SAn1EHF2z0eG7P8ELA2cwJOeVMC93vSe',   // PICC
     '18AIdXsIEI8GGILv0KiMNcSlnDtsWIz0P'    // NEVA
   ];
   const PERFORMANCE_FOLDER_SUFFIX = '_Performance_Documentation';
