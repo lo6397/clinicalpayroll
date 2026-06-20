@@ -4036,10 +4036,10 @@ function shareBillyOnPerformanceDocumentationFolders() {
           if (DRY_RUN) {
             Logger.log('DRY RUN - SHARED: ' + employeeName + ' -> ' + perfName);
           } else {
-            Drive.Permissions.insert(
-              { role: 'writer', type: 'user', value: EMAIL_TO_ADD },
+            Drive.Permissions.create(
+              { role: 'writer', type: 'user', emailAddress: EMAIL_TO_ADD },
               perfFolder.getId(),
-              { sendNotificationEmails: false }
+              { sendNotificationEmail: false }
             );
             Logger.log('SHARED: ' + employeeName + ' -> ' + perfName);
           }
@@ -4156,10 +4156,10 @@ function shareJohnOnPICCPerformanceDocumentationFolders() {
           if (DRY_RUN) {
             Logger.log('DRY RUN - SHARED: ' + employeeName + ' -> ' + perfName);
           } else {
-            Drive.Permissions.insert(
-              { role: 'writer', type: 'user', value: EMAIL_TO_ADD },
+            Drive.Permissions.create(
+              { role: 'writer', type: 'user', emailAddress: EMAIL_TO_ADD },
               perfFolder.getId(),
-              { sendNotificationEmails: false }
+              { sendNotificationEmail: false }
             );
             Logger.log('SHARED: ' + employeeName + ' -> ' + perfName);
           }
