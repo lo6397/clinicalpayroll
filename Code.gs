@@ -4063,20 +4063,18 @@ function shareBillyOnPerformanceDocumentationFolders() {
   );
 }
 function shareJohnOnPICCPerformanceDocumentationFolders() {
+  // Guard: Advanced Drive Service must be enabled — check before anything else
+  if (typeof Drive === 'undefined') {
+    Logger.log('Drive Advanced Service is NOT enabled. Enable it via Services panel → add Drive API → click Add. Aborting.');
+    return;
+  }
+
   const EMAIL_TO_ADD = 'john.tanchiatco@vellum.health';
   const PARENT_FOLDER_IDS = [
     '1SAn1EHF2z0eG7P8ELA2cwJOeVMC93vSe'    // PICC
   ];
   const PERFORMANCE_FOLDER_SUFFIX = '_Performance_Documentation';
   const DRY_RUN = true;
-
-  // Guard: Advanced Drive Service must be enabled
-  if (typeof Drive === 'undefined') {
-    Logger.log('ABORT: Advanced Drive Service is not enabled in this Apps Script project.');
-    Logger.log('       Enable it in the editor: Services panel (left sidebar) → "+" → select "Drive API" → Add. Then re-run.');
-    Logger.log('DRY RUN complete. Parents walked: 0, Employee folders walked: 0, Perf folders shared: 0, Perf folders skipped (already shared): 0, Perf folders not found: 0, Errors: 1');
-    return;
-  }
 
   const suffixLower = PERFORMANCE_FOLDER_SUFFIX.toLowerCase();
 
@@ -4167,7 +4165,7 @@ function shareJohnOnPICCPerformanceDocumentationFolders() {
           }
           perfShared++;
         } catch (err) {
-          Logger.log('ERROR sharing ' + employeeName + ' -> ' + perfName + ': ' + err);
+          Logger.log('ERROR sharing ' + employeeName + ' -> ' + perfName + ': ' + (err && err.message ? err.message : err) + ' | ' + (err && err.stack ? err.stack : '(no stack)'));
           errors++;
         }
       });
