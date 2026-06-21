@@ -3856,19 +3856,21 @@ function autoCreateEmployeeSubfolders() {
     '1ONMCv9H8W7MEfaMvgDJXtAsGxq-IwiZO',   // PV_Vascular
     '18AIdXsIEI8GGILv0KiMNcSlnDtsWIz0P'    // NEVA
   ];
-  const REQUIRED_SUBFOLDER_SUFFIXES = [
-    'Employment_Agreement',
-    'Resume',
-    'Licenses_and_Certifications',
-    'Vaccine_Records',
-    'Clinical_Competencies',
-    'Employee_Documentation',
-    'Performance_Documentation'
+  const SUBFOLDER_DEFS = [
+    { num: 1, suffix: 'Employment_Agreement' },
+    { num: 2, suffix: 'Onboarding_Documents' },
+    { num: 3, suffix: 'Licenses_and_Certifications' },
+    { num: 4, suffix: 'Performance_Documentation' },
+    { num: 5, suffix: 'Vaccine_Records' },
+    { num: 6, suffix: 'Clinical_Competencies' },
+    { num: 7, suffix: 'Employee_Documentation' },
+    { num: 8, suffix: 'Resume' }
   ];
   const DRY_RUN = true;
 
   let parentsWalked = 0;
   let employeesWalked = 0;
+  let subfoldersRenamed = 0;
   let subfoldersCreated = 0;
   let employeesSkippedNoComma = 0;
   let errors = 0;
@@ -3903,24 +3905,61 @@ function autoCreateEmployeeSubfolders() {
 
         const lastname = employeeName.split(',')[0].trim();
 
-        // Snapshot existing subfolders' names ONCE
-        const existingNames = {};
+        Logger.log('=== Employee: ' + employeeName + ' (lastname: ' + lastname + ') ===');
+
+        // Snapshot existing subfolders' name -> folder object, ONCE
+        const existing = {};
         const existingIter = employeeFolder.getFolders();
         while (existingIter.hasNext()) {
-          existingNames[existingIter.next().getName()] = true;
+          const sf = existingIter.next();
+          existing[sf.getName()] = sf;
         }
 
         employeesWalked++;
 
-        REQUIRED_SUBFOLDER_SUFFIXES.forEach(function(suffix) {
-          const expectedName = lastname + '_' + suffix;
-          if (existingNames[expectedName]) return;
+        SUBFOLDER_DEFS.forEach(function(def) {
+          const newName = def.num + '.' + lastname + '_' + def.suffix;
+          const oldName = lastname + '_' + def.suffix;
 
+          const hasNew = Object.prototype.hasOwnProperty.call(existing, newName);
+          const hasOld = Object.prototype.hasOwnProperty.call(existing, oldName);
+
+          // Safety: refuse to rename if both names already exist (would duplicate)
+          if (hasNew && hasOld) {
+            Logger.log(
+              'SKIP-DUPLICATE-EXISTS: ' + employeeName +
+              ' | want to rename ' + oldName + ' -> ' + newName +
+              ' but new name already exists'
+            );
+            return;
+          }
+
+          // Case A — already correctly named, silent skip
+          if (hasNew) return;
+
+          // Case B — rename existing old-named folder to new name
+          if (hasOld) {
+            const oldFolder = existing[oldName];
+            if (DRY_RUN) {
+              Logger.log('DRY RUN - RENAMED: ' + employeeName + ' | ' + oldName + ' -> ' + newName);
+            } else {
+              oldFolder.setName(newName);
+              Logger.log('RENAMED: ' + employeeName + ' | ' + oldName + ' -> ' + newName);
+            }
+            existing[newName] = oldFolder;
+            delete existing[oldName];
+            subfoldersRenamed++;
+            return;
+          }
+
+          // Case C — neither name present, create new
           if (DRY_RUN) {
-            Logger.log('DRY RUN - CREATED: ' + employeeName + ' -> ' + expectedName);
+            Logger.log('DRY RUN - CREATED: ' + employeeName + ' -> ' + newName);
+            existing[newName] = true;
           } else {
-            employeeFolder.createFolder(expectedName);
-            Logger.log('CREATED: ' + employeeName + ' -> ' + expectedName);
+            const fresh = employeeFolder.createFolder(newName);
+            Logger.log('CREATED: ' + employeeName + ' -> ' + newName);
+            existing[newName] = fresh;
           }
           subfoldersCreated++;
         });
@@ -3935,7 +3974,8 @@ function autoCreateEmployeeSubfolders() {
     (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
     'Department parents walked: ' + parentsWalked +
     ', Employee folders walked: ' + employeesWalked +
-    ', Subfolders ' + (DRY_RUN ? 'that would be created' : 'created') + ': ' + subfoldersCreated +
+    ', Subfolders ' + (DRY_RUN ? 'that would be renamed' : 'renamed') + ': ' + subfoldersRenamed +
+    ', Subfolders ' + (DRY_RUN ? 'that would be created (new)' : 'created (new)') + ': ' + subfoldersCreated +
     ', Employees skipped (no comma): ' + employeesSkippedNoComma +
     ', Errors: ' + errors
   );
