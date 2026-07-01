@@ -4681,3 +4681,156 @@ function sharePVVascularPerformanceFoldersFromSheet() {
     ', Errors: ' + errors
   );
 }
+function archiveProcessedSheetsByPayDate() {
+  const DRY_RUN = true;
+
+  const SERVICE_LINES = [
+    { name: 'Infusion', sourceParentId: '1miO62yCilTD7CEiX1Y42beVEPXEdaVtM', archiveParentId: '11e24KTEMKtPKEqDKY8gdwp5hsB6H1Wp1' },
+    { name: 'Vascular', sourceParentId: '185swROseZQ4U1nRhHtD-pFNIRx0DIz19', archiveParentId: '1kF1oZsaaXQGUNArRM58xp1Ac7tqLIDzG' },
+    { name: 'NEVA',     sourceParentId: '18AIdXsIEI8GGILv0KiMNcSlnDtsWIz0P', archiveParentId: '1gvXgM4wy2U20mIgzHdZiSK8mbgbCa7xM' },
+    { name: 'PICC',     sourceParentId: '1SAn1EHF2z0eG7P8ELA2cwJOeVMC93vSe', archiveParentId: '1kJaqI3-w7wz5N3fxhxw3tHWU9joayy2J' }
+  ];
+
+  const DATE_REGEX = /_(\d{1,2})_(\d{1,2})-(\d{1,2})_(\d{1,2})_(Processed|Reviewed)/i;
+
+  let serviceLinesWalked = 0;
+  let employeesWalked = 0;
+  let filesArchived = 0;
+  let skippedNoDate = 0;
+  let subfoldersCreated = 0;
+  let errors = 0;
+
+  SERVICE_LINES.forEach(function(sl) {
+    Logger.log('=== SERVICE LINE: ' + sl.name + ' ===');
+
+    let sourceParent;
+    try {
+      sourceParent = DriveApp.getFolderById(sl.sourceParentId);
+    } catch (err) {
+      Logger.log('ERROR: could not open ' + sl.name + ' source parent ' + sl.sourceParentId + ': ' + (err && err.message ? err.message : err));
+      errors++;
+      return;
+    }
+
+    let archiveParent;
+    try {
+      archiveParent = DriveApp.getFolderById(sl.archiveParentId);
+    } catch (err) {
+      Logger.log('ERROR: could not open ' + sl.name + ' archive parent ' + sl.archiveParentId + ': ' + (err && err.message ? err.message : err));
+      errors++;
+      return;
+    }
+
+    serviceLinesWalked++;
+    Logger.log('  Source parent: "' + sourceParent.getName() + '"');
+    Logger.log('  Archive parent: "' + archiveParent.getName() + '"');
+
+    // Subfolder cache: name -> Folder object (or true for dry-run virtual)
+    const subfolderCache = {};
+
+    function resolveArchiveSubfolder(name) {
+      if (Object.prototype.hasOwnProperty.call(subfolderCache, name)) {
+        return subfolderCache[name];
+      }
+      const matches = archiveParent.getFoldersByName(name);
+      if (matches.hasNext()) {
+        const existing = matches.next();
+        Logger.log('USING SUBFOLDER: ' + name);
+        subfolderCache[name] = existing;
+        return existing;
+      }
+      if (DRY_RUN) {
+        Logger.log('DRY RUN - CREATED SUBFOLDER: ' + name);
+        subfoldersCreated++;
+        subfolderCache[name] = true; // virtual
+        return true;
+      }
+      const created = archiveParent.createFolder(name);
+      Logger.log('CREATED SUBFOLDER: ' + name);
+      subfoldersCreated++;
+      subfolderCache[name] = created;
+      return created;
+    }
+
+    const employeeFolders = sourceParent.getFolders();
+
+    while (employeeFolders.hasNext()) {
+      const empFolder = employeeFolders.next();
+      const empName = empFolder.getName();
+
+      if (empName.toLowerCase().includes('archive')) continue;
+
+      employeesWalked++;
+
+      // Snapshot files first so moves don't disturb the iterator
+      const toArchive = [];
+      const noDate = [];
+
+      const files = empFolder.getFiles();
+      while (files.hasNext()) {
+        const f = files.next();
+        const fn = f.getName();
+        const m = fn.match(DATE_REGEX);
+        if (m) {
+          toArchive.push({ file: f, fn: fn, match: m });
+        } else {
+          const lower = fn.toLowerCase();
+          if (lower.includes('processed') || lower.includes('reviewed')) {
+            noDate.push({ file: f, fn: fn });
+          }
+        }
+      }
+
+      noDate.forEach(function(item) {
+        Logger.log('SKIP-NO-DATE: ' + sl.name + ' | ' + empName + ' | ' + item.fn);
+        skippedNoDate++;
+      });
+
+      toArchive.forEach(function(item) {
+        try {
+          const endMonth = parseInt(item.match[3], 10);
+          const endDay = parseInt(item.match[4], 10);
+
+          const modDate = item.file.getLastUpdated();
+          const modYear = modDate.getFullYear();
+          const modMonth = modDate.getMonth() + 1;
+
+          let year = modYear;
+          if (endMonth - modMonth > 6) year--;
+
+          const periodEnd = new Date(year, endMonth - 1, endDay, 12, 0, 0);
+          const dow = periodEnd.getDay(); // 0=Sun..5=Fri..6=Sat
+          const daysToFri = ((5 - dow + 7) % 7) || 7;
+          const payDate = new Date(periodEnd);
+          payDate.setDate(payDate.getDate() + daysToFri);
+
+          const subName = (payDate.getMonth() + 1) + '-' + payDate.getDate() + '-' + payDate.getFullYear();
+
+          const target = resolveArchiveSubfolder(subName);
+
+          if (DRY_RUN) {
+            Logger.log('DRY RUN - ARCHIVED: ' + sl.name + ' | ' + empName + ' | ' + item.fn + ' -> ' + subName);
+          } else {
+            target.addFile(item.file);
+            empFolder.removeFile(item.file);
+            Logger.log('ARCHIVED: ' + sl.name + ' | ' + empName + ' | ' + item.fn + ' -> ' + subName);
+          }
+          filesArchived++;
+        } catch (err) {
+          Logger.log('ERROR: ' + sl.name + ' | ' + empName + ' | ' + item.fn + ': ' + (err && err.message ? err.message : err));
+          errors++;
+        }
+      });
+    }
+  });
+
+  Logger.log(
+    (DRY_RUN ? 'DRY RUN complete. ' : 'Done. ') +
+    'Service lines walked: ' + serviceLinesWalked +
+    ', Employee folders walked: ' + employeesWalked +
+    ', Files ' + (DRY_RUN ? 'that would be archived' : 'archived') + ': ' + filesArchived +
+    ', Files skipped (no date): ' + skippedNoDate +
+    ', Subfolders ' + (DRY_RUN ? 'that would be created' : 'created') + ': ' + subfoldersCreated +
+    ', Errors: ' + errors
+  );
+}
